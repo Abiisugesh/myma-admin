@@ -11,252 +11,548 @@ import {
   X,
 } from "lucide-react";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useNavigate } from "react-router-dom";
 
-
-// ======================================================
-// DEMO CATEGORIES
-// Later Java + MySQL API-la replace pannuvom
-// ======================================================
-
-const initialCategories = [
-  {
-    id: 1,
-    name: "Fruits",
-    description:
-      "Fresh and healthy fruits",
-    image: "🍎",
-    status: "Active",
-    productCount: 24,
-  },
-
-  {
-    id: 2,
-    name: "Vegetables",
-    description:
-      "Fresh vegetables for everyday cooking",
-    image: "🥕",
-    status: "Active",
-    productCount: 36,
-  },
-
-  {
-    id: 3,
-    name: "Dairy",
-    description:
-      "Milk, curd, butter and other dairy products",
-    image: "🥛",
-    status: "Active",
-    productCount: 18,
-  },
-
-  {
-    id: 4,
-    name: "Groceries",
-    description:
-      "Daily essential grocery products",
-    image: "🛒",
-    status: "Active",
-    productCount: 52,
-  },
-
-  {
-    id: 5,
-    name: "Snacks",
-    description:
-      "Tasty snacks and quick bites",
-    image: "🍿",
-    status: "Active",
-    productCount: 31,
-  },
-
-  {
-    id: 6,
-    name: "Beverages",
-    description:
-      "Juices, soft drinks and beverages",
-    image: "🥤",
-    status: "Inactive",
-    productCount: 12,
-  },
-];
-
+import api from "../api/api";
 
 // ======================================================
 // CATEGORIES
 // ======================================================
 
 function Categories() {
-
   const navigate = useNavigate();
-
 
   // ====================================================
   // STATE
   // ====================================================
 
-  const [categories, setCategories] =
-    useState(initialCategories);
+  const [categories, setCategories] = useState([]);
 
-  const [search, setSearch] =
-    useState("");
+  const [search, setSearch] = useState("");
 
-  const [statusFilter, setStatusFilter] =
-    useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
 
-  const [showAddModal, setShowAddModal] =
-    useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  const [editingCategory, setEditingCategory] =
-    useState(null);
+  const [editingCategory, setEditingCategory] = useState(null);
 
-  const [deleteCategory, setDeleteCategory] =
-    useState(null);
+  const [deleteCategory, setDeleteCategory] = useState(null);
 
+  const [toast, setToast] = useState({
+    show: false,
+    type: "error",
+    message: "",
+  });
+
+  // ====================================================
+  // TOAST
+  // ====================================================
+
+  const showToast = (message, type = "error") => {
+    setToast({
+      show: true,
+      type,
+      message,
+    });
+
+    setTimeout(() => {
+      setToast((current) => ({
+        ...current,
+        show: false,
+      }));
+    }, 3500);
+  };
+
+  // ====================================================
+  // GET CATEGORIES
+  // ====================================================
+
+  const fetchCategories = async () => {
+    try {
+      const response = await api.get("/admin/categories");
+
+      const data = response.data;
+
+      const formattedCategories = Array.isArray(data)
+        ? data.map((category) => ({
+            id: category.id,
+            name: category.name,
+            description: category.description || "",
+
+            // REAL S3 IMAGE URL
+            image: category.imageUrl || null,
+
+            // Keep original URL also
+            imageUrl: category.imageUrl || null,
+
+            status: category.active ? "Active" : "Inactive",
+
+            productCount: 0,
+          }))
+        : [];
+
+      setCategories(formattedCategories);
+    } catch (error) {
+      console.error(
+        "Failed to fetch categories:",
+        error
+      );
+
+      showToast(
+        error.response?.data?.message ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to load categories"
+      );
+    }
+  };
+
+  // ====================================================
+  // LOAD CATEGORIES
+  // ====================================================
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
 
   // ====================================================
   // FILTERED CATEGORIES
   // ====================================================
 
-  const filteredCategories =
-    useMemo(() => {
+  const filteredCategories = useMemo(() => {
+    return categories.filter((category) => {
+      const matchesSearch =
+        category.name
+          .toLowerCase()
+          .includes(search.toLowerCase());
 
-      return categories.filter(
-        (category) => {
+      const matchesStatus =
+        statusFilter === "All" ||
+        category.status === statusFilter;
 
-          const matchesSearch =
-            category.name
-              .toLowerCase()
-              .includes(
-                search.toLowerCase()
-              );
-
-          const matchesStatus =
-            statusFilter === "All" ||
-            category.status === statusFilter;
-
-          return (
-            matchesSearch &&
-            matchesStatus
-          );
-        }
+      return (
+        matchesSearch &&
+        matchesStatus
       );
-
-    }, [
-      categories,
-      search,
-      statusFilter,
-    ]);
-
+    });
+  }, [
+    categories,
+    search,
+    statusFilter,
+  ]);
 
   // ====================================================
   // ADD CATEGORY
   // ====================================================
 
-  const handleAddCategory = (
+  const handleAddCategory = async (
     categoryData
   ) => {
+    try {
+      const formData = new FormData();
 
-    const newCategory = {
+      // CATEGORY JSON
+      formData.append(
+        "category",
+        new Blob(
+          [
+            JSON.stringify({
+              name: categoryData.name,
+              description:
+                categoryData.description,
+              active:
+                categoryData.status ===
+                "Active",
+            }),
+          ],
+          {
+            type: "application/json",
+          }
+        )
+      );
 
-      id:
-        Date.now(),
+      // IMAGE FILE
+      if (categoryData.imageFile) {
+        formData.append(
+          "image",
+          categoryData.imageFile
+        );
+      }
 
-      name:
-        categoryData.name,
+      await api.post(
+        "/admin/categories",
+        formData
+      );
 
-      description:
-        categoryData.description,
+      setShowAddModal(false);
 
-      image:
-        categoryData.image,
+      showToast(
+        "Category added successfully",
+        "success"
+      );
 
-      status:
-        categoryData.status,
+      await fetchCategories();
+    } catch (error) {
+      console.error(
+        "Failed to add category:",
+        error
+      );
 
-      productCount: 0,
-
-    };
-
-
-    setCategories(
-      (currentCategories) => [
-        ...currentCategories,
-        newCategory,
-      ]
-    );
-
-    setShowAddModal(false);
+      showToast(
+        error.response?.data?.message ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to add category"
+      );
+    }
   };
-
 
   // ====================================================
   // UPDATE CATEGORY
   // ====================================================
 
-  const handleUpdateCategory = (
+  const handleUpdateCategory = async (
     categoryData
   ) => {
+    try {
+      const formData = new FormData();
 
-    setCategories(
-      (currentCategories) =>
-        currentCategories.map(
-          (category) =>
-            category.id ===
-            editingCategory.id
-              ? {
-                  ...category,
-                  name:
-                    categoryData.name,
-                  description:
-                    categoryData.description,
-                  image:
-                    categoryData.image,
-                  status:
-                    categoryData.status,
-                }
-              : category
+      // CATEGORY JSON
+      formData.append(
+        "category",
+        new Blob(
+          [
+            JSON.stringify({
+              name: categoryData.name,
+              description:
+                categoryData.description,
+              active:
+                categoryData.status ===
+                "Active",
+            }),
+          ],
+          {
+            type: "application/json",
+          }
         )
-    );
+      );
 
-    setEditingCategory(null);
+      // ONLY SEND IMAGE IF USER SELECTED A NEW ONE
+      if (categoryData.imageFile) {
+        formData.append(
+          "image",
+          categoryData.imageFile
+        );
+      }
+
+      await api.put(
+        `/admin/categories/${editingCategory.id}`,
+        formData
+      );
+
+      setEditingCategory(null);
+
+      showToast(
+        "Category updated successfully",
+        "success"
+      );
+
+      await fetchCategories();
+    } catch (error) {
+      console.error(
+        "Failed to update category:",
+        error
+      );
+
+      showToast(
+        error.response?.data?.message ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to update category"
+      );
+    }
   };
-
 
   // ====================================================
   // DELETE CATEGORY
   // ====================================================
 
-  const handleDelete = () => {
-
+  const handleDelete = async () => {
     if (!deleteCategory) {
       return;
     }
 
+    try {
+      await api.delete(
+        `/admin/categories/${deleteCategory.id}`
+      );
 
-    setCategories(
-      (currentCategories) =>
-        currentCategories.filter(
-          (category) =>
-            category.id !==
-            deleteCategory.id
-        )
-    );
+      setDeleteCategory(null);
 
+      showToast(
+        "Category deleted successfully",
+        "success"
+      );
 
-    setDeleteCategory(null);
+      await fetchCategories();
+    } catch (error) {
+      console.error(
+        "Failed to delete category:",
+        error
+      );
+
+      showToast(
+        error.response?.data?.message ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to delete category"
+      );
+    }
   };
 
+  // ====================================================
+  // OPEN EDIT
+  // ====================================================
+
+  const handleEdit = (category) => {
+    setEditingCategory(category);
+  };
+
+  // ====================================================
+  // RENDER
+  // ====================================================
 
   return (
-    <main
-      className="
-        min-h-screen
-        bg-[#F8F6FF]
-      "
-    >
+    <main className="min-h-screen bg-[#F8F6FF]">
+
+      {/* ==================================================
+          TOAST NOTIFICATION
+      ================================================== */}
+
+      {toast.show && (
+        <motion.div
+          initial={{
+            opacity: 0,
+            y: -35,
+            x: 20,
+            scale: 0.94,
+          }}
+          animate={{
+            opacity: 1,
+            y: 0,
+            x: 0,
+            scale: 1,
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 380,
+            damping: 25,
+          }}
+          className="
+            fixed
+            right-4
+            top-4
+            z-[200]
+            w-[calc(100%-2rem)]
+            max-w-sm
+            sm:right-6
+            sm:top-6
+          "
+        >
+          <div
+            className={`
+              relative
+              overflow-hidden
+              rounded-2xl
+              border
+              bg-white/95
+              px-4
+              py-4
+              shadow-[0_18px_55px_rgba(48,35,95,0.18)]
+              backdrop-blur-xl
+              ${
+                toast.type === "success"
+                  ? "border-emerald-100"
+                  : "border-rose-100"
+              }
+            `}
+          >
+
+            {/* ACCENT */}
+            <div
+              className={`
+                absolute
+                inset-y-0
+                left-0
+                w-1
+                ${
+                  toast.type === "success"
+                    ? "bg-gradient-to-b from-emerald-300 via-emerald-500 to-teal-500"
+                    : "bg-gradient-to-b from-rose-300 via-red-500 to-pink-500"
+                }
+              `}
+            />
+
+            <div className="flex items-start gap-3 pl-1">
+
+              {/* ICON */}
+
+              <motion.div
+                initial={{
+                  scale: 0.5,
+                  rotate: -15,
+                }}
+                animate={{
+                  scale: 1,
+                  rotate: 0,
+                }}
+                transition={{
+                  type: "spring",
+                  stiffness: 450,
+                  damping: 18,
+                  delay: 0.05,
+                }}
+                className={`
+                  relative
+                  flex
+                  h-10
+                  w-10
+                  shrink-0
+                  items-center
+                  justify-center
+                  rounded-xl
+                  text-base
+                  font-black
+                  ${
+                    toast.type === "success"
+                      ? "bg-emerald-50 text-emerald-600"
+                      : "bg-rose-50 text-rose-500"
+                  }
+                `}
+              >
+
+                <span
+                  className={`
+                    absolute
+                    inset-0
+                    rounded-xl
+                    opacity-40
+                    blur-md
+                    ${
+                      toast.type === "success"
+                        ? "bg-emerald-200"
+                        : "bg-rose-200"
+                    }
+                  `}
+                />
+
+                <span className="relative">
+                  {toast.type === "success"
+                    ? "✓"
+                    : "!"}
+                </span>
+
+              </motion.div>
+
+              {/* CONTENT */}
+
+              <div className="min-w-0 flex-1 pt-0.5">
+
+                <div className="flex items-center gap-2">
+
+                  <p
+                    className={`
+                      text-[9px]
+                      font-black
+                      uppercase
+                      tracking-[0.18em]
+                      ${
+                        toast.type ===
+                        "success"
+                          ? "text-emerald-600"
+                          : "text-rose-500"
+                      }
+                    `}
+                  >
+                    MYMA • ADMIN
+                  </p>
+
+                  <span className="h-1 w-1 rounded-full bg-[#D8D0EA]" />
+
+                  <p className="text-[9px] font-bold text-[#AAA3BC]">
+                    {toast.type === "success"
+                      ? "Success"
+                      : "Error"}
+                  </p>
+
+                </div>
+
+                <p className="mt-1 text-xs font-black leading-5 text-[#211B38]">
+                  {toast.message}
+                </p>
+
+              </div>
+
+              {/* CLOSE */}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setToast((current) => ({
+                    ...current,
+                    show: false,
+                  }))
+                }
+                className="
+                  flex
+                  h-7
+                  w-7
+                  shrink-0
+                  items-center
+                  justify-center
+                  rounded-lg
+                  text-[#AAA3BC]
+                  transition-all
+                  hover:bg-[#F5F2FF]
+                  hover:text-[#5B3FC4]
+                "
+              >
+                <X size={14} />
+              </button>
+
+            </div>
+
+            {/* PROGRESS */}
+
+            <motion.div
+              initial={{
+                width: "100%",
+              }}
+              animate={{
+                width: "0%",
+              }}
+              transition={{
+                duration: 3.5,
+                ease: "linear",
+              }}
+              className={`
+                absolute
+                bottom-0
+                left-0
+                h-[2px]
+                ${
+                  toast.type === "success"
+                    ? "bg-gradient-to-r from-emerald-400 to-teal-400"
+                    : "bg-gradient-to-r from-rose-400 to-red-500"
+                }
+              `}
+            />
+
+          </div>
+        </motion.div>
+      )}
 
       {/* ==================================================
           HEADER
@@ -319,7 +615,6 @@ function Categories() {
               <ArrowLeft size={18} />
             </button>
 
-
             <div>
 
               <p
@@ -349,7 +644,6 @@ function Categories() {
             </div>
 
           </div>
-
 
           {/* ADD CATEGORY */}
 
@@ -398,7 +692,6 @@ function Categories() {
 
       </header>
 
-
       {/* ==================================================
           CONTENT
       ================================================== */}
@@ -415,9 +708,7 @@ function Categories() {
         "
       >
 
-        {/* ==================================================
-            SUMMARY
-        ================================================== */}
+        {/* SUMMARY */}
 
         <div
           className="
@@ -460,10 +751,7 @@ function Categories() {
 
         </div>
 
-
-        {/* ==================================================
-            SEARCH
-        ================================================== */}
+        {/* SEARCH */}
 
         <section
           className="
@@ -541,7 +829,6 @@ function Categories() {
 
             </div>
 
-
             {/* STATUS */}
 
             <select
@@ -583,7 +870,6 @@ function Categories() {
           </div>
 
         </section>
-
 
         {/* ==================================================
             CATEGORY GRID
@@ -639,20 +925,51 @@ function Categories() {
                       h-36
                       items-center
                       justify-center
+                      overflow-hidden
                       bg-[#F5F2FF]
                     "
                   >
 
-                    <span
-                      className="
-                        text-6xl
-                      "
-                    >
-                      {category.image}
-                    </span>
+                    {category.image ? (
+
+                      <img
+                        src={category.image}
+                        alt={category.name}
+                        className="
+                          h-full
+                          w-full
+                          object-cover
+                          transition
+                          duration-300
+                          hover:scale-105
+                        "
+                        onError={(e) => {
+                          e.currentTarget.style.display =
+                            "none";
+                        }}
+                      />
+
+                    ) : (
+
+                      <div
+                        className="
+                          flex
+                          h-full
+                          w-full
+                          items-center
+                          justify-center
+                          text-[#9B92B4]
+                        "
+                      >
+                        <ImagePlus
+                          size={38}
+                          strokeWidth={1.5}
+                        />
+                      </div>
+
+                    )}
 
                   </div>
-
 
                   {/* DETAILS */}
 
@@ -699,7 +1016,6 @@ function Categories() {
 
                       </div>
 
-
                       <span
                         className={`
                           shrink-0
@@ -720,7 +1036,6 @@ function Categories() {
                       </span>
 
                     </div>
-
 
                     {/* PRODUCT COUNT */}
 
@@ -756,7 +1071,6 @@ function Categories() {
 
                     </div>
 
-
                     {/* ACTIONS */}
 
                     <div
@@ -770,7 +1084,7 @@ function Categories() {
                       <button
                         type="button"
                         onClick={() =>
-                          setEditingCategory(
+                          handleEdit(
                             category
                           )
                         }
@@ -796,7 +1110,6 @@ function Categories() {
                         Edit
 
                       </button>
-
 
                       <button
                         type="button"
@@ -835,10 +1148,6 @@ function Categories() {
 
         ) : (
 
-          /* ==================================================
-              EMPTY
-          ================================================== */
-
           <div
             className="
               mt-6
@@ -868,9 +1177,7 @@ function Categories() {
                 text-[#6B4FD3]
               "
             >
-
               <Search size={25} />
-
             </div>
 
             <h3
@@ -901,7 +1208,6 @@ function Categories() {
 
       </section>
 
-
       {/* ==================================================
           ADD MODAL
       ================================================== */}
@@ -920,7 +1226,6 @@ function Categories() {
         />
 
       )}
-
 
       {/* ==================================================
           EDIT MODAL
@@ -943,7 +1248,6 @@ function Categories() {
         />
 
       )}
-
 
       {/* ==================================================
           DELETE MODAL
@@ -996,11 +1300,8 @@ function Categories() {
                 text-red-500
               "
             >
-
               <Trash2 size={20} />
-
             </div>
-
 
             <h3
               className="
@@ -1021,7 +1322,6 @@ function Categories() {
                 text-[#81799C]
               "
             >
-
               Are you sure you want to
               delete{" "}
 
@@ -1035,9 +1335,7 @@ function Categories() {
               </span>
 
               ?
-
             </p>
-
 
             <div
               className="
@@ -1067,11 +1365,8 @@ function Categories() {
                   text-[#81799C]
                 "
               >
-
                 Cancel
-
               </button>
-
 
               <button
                 type="button"
@@ -1109,7 +1404,6 @@ function Categories() {
   );
 }
 
-
 // ======================================================
 // CATEGORY MODAL
 // ======================================================
@@ -1122,19 +1416,25 @@ function CategoryModal({
   onSubmit,
 }) {
 
-  const [name, setName] =
-    useState(
-      initialData?.name || ""
-    );
+  const [name, setName] = useState(
+    initialData?.name || ""
+  );
 
   const [description, setDescription] =
     useState(
       initialData?.description || ""
     );
 
-  const [image, setImage] =
+  // ACTUAL FILE
+  const [imageFile, setImageFile] =
+    useState(null);
+
+  // PREVIEW URL
+  const [imagePreview, setImagePreview] =
     useState(
-      initialData?.image || "📦"
+      initialData?.imageUrl ||
+        initialData?.image ||
+        ""
     );
 
   const [status, setStatus] =
@@ -1145,9 +1445,8 @@ function CategoryModal({
   const [error, setError] =
     useState("");
 
-
   // ====================================================
-  // IMAGE
+  // IMAGE CHANGE
   // ====================================================
 
   const handleImageChange = (e) => {
@@ -1159,12 +1458,43 @@ function CategoryModal({
       return;
     }
 
+    // VALIDATE TYPE
+    const allowedTypes = [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+
+      setError(
+        "Please select PNG, JPEG or WEBP image."
+      );
+
+      return;
+    }
+
+    // VALIDATE SIZE - 5MB
+    if (file.size > 5 * 1024 * 1024) {
+
+      setError(
+        "Image size must be less than 5MB."
+      );
+
+      return;
+    }
+
+    setError("");
+
+    // Store actual file
+    setImageFile(file);
+
+    // Create preview
     const preview =
       URL.createObjectURL(file);
 
-    setImage(preview);
+    setImagePreview(preview);
   };
-
 
   // ====================================================
   // SUBMIT
@@ -1176,7 +1506,6 @@ function CategoryModal({
 
     setError("");
 
-
     if (!name.trim()) {
 
       setError(
@@ -1185,7 +1514,6 @@ function CategoryModal({
 
       return;
     }
-
 
     if (!description.trim()) {
 
@@ -1196,20 +1524,22 @@ function CategoryModal({
       return;
     }
 
-
+    // Send actual File + form data
     onSubmit({
-      name:
-        name.trim(),
+      name: name.trim(),
 
       description:
         description.trim(),
 
-      image,
+      imageFile,
 
       status,
     });
   };
 
+  // ====================================================
+  // RENDER
+  // ====================================================
 
   return (
     <div
@@ -1246,9 +1576,7 @@ function CategoryModal({
         "
       >
 
-        {/* ==================================================
-            MODAL HEADER
-        ================================================== */}
+        {/* MODAL HEADER */}
 
         <div
           className="
@@ -1289,7 +1617,6 @@ function CategoryModal({
 
           </div>
 
-
           <button
             type="button"
             onClick={onClose}
@@ -1305,17 +1632,12 @@ function CategoryModal({
               hover:bg-[#F5F2FF]
             "
           >
-
             <X size={18} />
-
           </button>
 
         </div>
 
-
-        {/* ==================================================
-            FORM
-        ================================================== */}
+        {/* FORM */}
 
         <form
           onSubmit={handleSubmit}
@@ -1345,7 +1667,6 @@ function CategoryModal({
 
           )}
 
-
           {/* IMAGE */}
 
           <div>
@@ -1359,9 +1680,8 @@ function CategoryModal({
                 text-[#211B38]
               "
             >
-              Category Icon
+              Category Image
             </label>
-
 
             <div
               className="
@@ -1371,28 +1691,29 @@ function CategoryModal({
               "
             >
 
+              {/* PREVIEW */}
+
               <div
                 className="
                   flex
-                  h-20
-                  w-20
+                  h-24
+                  w-24
                   shrink-0
                   items-center
                   justify-center
                   overflow-hidden
                   rounded-2xl
+                  border
+                  border-[#E3DDF5]
                   bg-[#F0ECFF]
-                  text-4xl
                 "
               >
 
-                {image.startsWith(
-                  "blob:"
-                ) ? (
+                {imagePreview ? (
 
                   <img
-                    src={image}
-                    alt="Category"
+                    src={imagePreview}
+                    alt="Category Preview"
                     className="
                       h-full
                       w-full
@@ -1402,12 +1723,17 @@ function CategoryModal({
 
                 ) : (
 
-                  image
+                  <ImagePlus
+                    size={30}
+                    strokeWidth={1.5}
+                    className="text-[#8B6CFF]"
+                  />
 
                 )}
 
               </div>
 
+              {/* UPLOAD BUTTON */}
 
               <label
                 className="
@@ -1430,7 +1756,9 @@ function CategoryModal({
 
                 <ImagePlus size={15} />
 
-                Change Image
+                {imagePreview
+                  ? "Change Image"
+                  : "Choose Image"}
 
                 <input
                   type="file"
@@ -1445,8 +1773,17 @@ function CategoryModal({
 
             </div>
 
-          </div>
+            <p
+              className="
+                mt-2
+                text-[9px]
+                text-[#AAA3BC]
+              "
+            >
+              PNG, JPEG or WEBP • Maximum 5MB
+            </p>
 
+          </div>
 
           {/* NAME */}
 
@@ -1462,9 +1799,11 @@ function CategoryModal({
               "
             >
               Category Name
+
               <span className="text-red-500">
                 {" "}*
               </span>
+
             </label>
 
             <input
@@ -1475,7 +1814,7 @@ function CategoryModal({
                   e.target.value
                 )
               }
-              placeholder="e.g. Fruits"
+              placeholder="e.g. Beverages"
               className="
                 h-11
                 w-full
@@ -1497,7 +1836,6 @@ function CategoryModal({
 
           </div>
 
-
           {/* DESCRIPTION */}
 
           <div className="mt-5">
@@ -1512,9 +1850,11 @@ function CategoryModal({
               "
             >
               Description
+
               <span className="text-red-500">
                 {" "}*
               </span>
+
             </label>
 
             <textarea
@@ -1548,7 +1888,6 @@ function CategoryModal({
             />
 
           </div>
-
 
           {/* STATUS */}
 
@@ -1601,7 +1940,6 @@ function CategoryModal({
 
           </div>
 
-
           {/* BUTTONS */}
 
           <div
@@ -1633,7 +1971,6 @@ function CategoryModal({
             >
               Cancel
             </button>
-
 
             <button
               type="submit"
@@ -1672,7 +2009,6 @@ function CategoryModal({
   );
 }
 
-
 // ======================================================
 // SAVE ICON
 // ======================================================
@@ -1700,7 +2036,6 @@ function SaveIcon() {
     </svg>
   );
 }
-
 
 // ======================================================
 // SUMMARY CARD
@@ -1740,11 +2075,8 @@ function SummaryCard({
           text-[#6B4FD3]
         "
       >
-
         <Icon size={18} />
-
       </div>
-
 
       <p
         className="
@@ -1758,7 +2090,6 @@ function SummaryCard({
       >
         {title}
       </p>
-
 
       <p
         className="
@@ -1775,6 +2106,5 @@ function SummaryCard({
     </motion.div>
   );
 }
-
 
 export default Categories;

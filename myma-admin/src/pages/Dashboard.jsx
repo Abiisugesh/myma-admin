@@ -15,14 +15,36 @@ import {
   UserRound,
   Users,
   X,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 
-import { useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+
+import api from "../api/api";
+
+
+// ======================================================
+// STATUS MAP
+// ======================================================
+
+const FRONTEND_STATUS_MAP = {
+  PENDING: "New",
+  CONFIRMED: "Confirmed",
+  PROCESSING: "Packed",
+  OUT_FOR_DELIVERY: "Out for Delivery",
+  DELIVERED: "Delivered",
+  CANCELLED: "Cancelled",
+};
 
 
 // ======================================================
@@ -35,12 +57,144 @@ function Dashboard() {
 
   const location = useLocation();
 
-  const [sidebarOpen, setSidebarOpen] =
-    useState(false);
+
+  // ======================================================
+  // SIDEBAR
+  // ======================================================
+
+  const [
+    sidebarOpen,
+    setSidebarOpen,
+  ] = useState(false);
 
 
   // ======================================================
-  // CHECK ADMIN LOGIN
+  // NOTIFICATION DROPDOWN
+  // ======================================================
+
+  const [
+    notificationOpen,
+    setNotificationOpen,
+  ] = useState(false);
+
+
+  // ======================================================
+  // LOGOUT POPUP
+  // ======================================================
+
+  const [
+    logoutPopupOpen,
+    setLogoutPopupOpen,
+  ] = useState(false);
+
+
+  // ======================================================
+  // ADMIN USER
+  // ======================================================
+
+  const adminUser = useMemo(() => {
+
+    const storedUser =
+      localStorage.getItem(
+        "myma_admin_user"
+      );
+
+    if (!storedUser) {
+      return null;
+    }
+
+    try {
+
+      return JSON.parse(
+        storedUser
+      );
+
+    } catch (error) {
+
+      console.warn(
+        "Unable to parse admin user:",
+        error
+      );
+
+      return {
+        name: storedUser,
+      };
+
+    }
+
+  }, []);
+
+
+  const adminName =
+    adminUser?.name ||
+    adminUser?.fullName ||
+    adminUser?.username ||
+    (
+      adminUser?.email
+        ? adminUser.email.split("@")[0]
+        : "Admin"
+    );
+
+
+  const adminRole =
+    adminUser?.role ||
+    "Administrator";
+
+
+  // ======================================================
+  // DASHBOARD DATA
+  // ======================================================
+
+  const [
+    orders,
+    setOrders,
+  ] = useState([]);
+
+
+  const [
+    products,
+    setProducts,
+  ] = useState([]);
+
+
+  const [
+    categories,
+    setCategories,
+  ] = useState([]);
+
+
+  // ======================================================
+  // LOADING
+  // ======================================================
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+
+  // ======================================================
+  // ERROR
+  // ======================================================
+
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+
+  // ======================================================
+  // LAST UPDATED
+  // ======================================================
+
+  const [
+    lastUpdated,
+    setLastUpdated,
+  ] = useState(null);
+
+
+  // ======================================================
+  // ADMIN LOGIN CHECK
   // ======================================================
 
   const authenticated =
@@ -48,20 +202,19 @@ function Dashboard() {
       "myma_admin_authenticated"
     );
 
-  if (authenticated !== "true") {
-    navigate("/login", {
-      replace: true,
-    });
-
-    return null;
-  }
-
 
   // ======================================================
   // LOGOUT
   // ======================================================
 
   const handleLogout = () => {
+
+    setLogoutPopupOpen(true);
+
+  };
+
+
+  const confirmLogout = () => {
 
     localStorage.removeItem(
       "myma_admin_authenticated"
@@ -71,42 +224,90 @@ function Dashboard() {
       "myma_admin_user"
     );
 
-    navigate("/login", {
-      replace: true,
-    });
+    localStorage.removeItem(
+      "adminToken"
+    );
+
+    localStorage.removeItem(
+      "token"
+    );
+
+    setLogoutPopupOpen(false);
+
+    navigate(
+      "/login",
+      {
+        replace: true,
+      }
+    );
+
+  };
+
+
+  const handleTokenExpired = () => {
+
+    localStorage.removeItem(
+      "myma_admin_authenticated"
+    );
+
+    localStorage.removeItem(
+      "myma_admin_user"
+    );
+
+    localStorage.removeItem(
+      "adminToken"
+    );
+
+    localStorage.removeItem(
+      "token"
+    );
+
+    navigate(
+      "/login",
+      {
+        replace: true,
+      }
+    );
+
   };
 
 
   // ======================================================
-  // SIDEBAR MENU
+  // MENU
   // ======================================================
 
   const menuItems = [
+
     {
       name: "Dashboard",
       icon: LayoutDashboard,
       path: "/dashboard",
     },
+
     {
       name: "Products",
       icon: Box,
       path: "/products",
     },
+
     {
       name: "Categories",
       icon: PackageCheck,
       path: "/categories",
     },
+
     {
       name: "Orders",
       icon: ShoppingCart,
       path: "/orders",
     },
+
     {
       name: "Customers",
       icon: Users,
       path: "/customers",
     },
+
   ];
 
 
@@ -117,7 +318,12 @@ function Dashboard() {
   const isActive = (path) => {
 
     if (path === "/dashboard") {
-      return location.pathname === "/dashboard";
+
+      return (
+        location.pathname ===
+        "/dashboard"
+      );
+
     }
 
     return (
@@ -126,6 +332,7 @@ function Dashboard() {
         `${path}/`
       )
     );
+
   };
 
 
@@ -133,7 +340,9 @@ function Dashboard() {
   // NAVIGATION
   // ======================================================
 
-  const handleNavigation = (path) => {
+  const handleNavigation = (
+    path
+  ) => {
 
     navigate(path);
 
@@ -143,10 +352,1383 @@ function Dashboard() {
       top: 0,
       behavior: "smooth",
     });
+
   };
 
 
+  // ======================================================
+  // LOAD DASHBOARD DATA
+  // ======================================================
+
+  const loadDashboardData =
+    async () => {
+
+      setLoading(true);
+
+      setError("");
+
+      try {
+
+        const [
+          ordersResponse,
+          productsResponse,
+          categoriesResponse,
+        ] = await Promise.all([
+
+          api.get(
+            "/admin/orders"
+          ),
+
+          api.get(
+            "/admin/products"
+          ),
+
+          api.get(
+            "/admin/categories"
+          ),
+
+        ]);
+
+
+        // ==================================================
+        // ORDERS
+        // ==================================================
+
+        const ordersData =
+          Array.isArray(
+            ordersResponse?.data
+          )
+            ? ordersResponse.data
+            : [];
+
+
+        // ==================================================
+        // PRODUCTS
+        // ==================================================
+
+        const productsData =
+          Array.isArray(
+            productsResponse?.data
+          )
+            ? productsResponse.data
+            : [];
+
+
+        // ==================================================
+        // CATEGORIES
+        // ==================================================
+
+        const categoriesData =
+          Array.isArray(
+            categoriesResponse?.data
+          )
+            ? categoriesResponse.data
+            : [];
+
+
+        setOrders(
+          ordersData
+        );
+
+        setProducts(
+          productsData
+        );
+
+        setCategories(
+          categoriesData
+        );
+
+
+        setLastUpdated(
+          new Date()
+        );
+
+
+      } catch (err) {
+
+        console.error(
+          "Dashboard API error:",
+          err
+        );
+
+
+        if (
+          err?.response?.status === 401 ||
+          err?.response?.status === 403
+        ) {
+
+          handleTokenExpired();
+
+          return;
+
+        }
+
+
+        setError(
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Unable to load dashboard data."
+        );
+
+
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    };
+
+
+  // ======================================================
+  // INITIAL LOAD
+  // ======================================================
+
+  useEffect(() => {
+
+    if (
+      authenticated !== "true"
+    ) {
+
+      navigate(
+        "/login",
+        {
+          replace: true,
+        }
+      );
+
+      return;
+
+    }
+
+
+    loadDashboardData();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  }, []);
+
+
+  // ======================================================
+  // GREETING
+  // ======================================================
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+
+    if (hour < 12) {
+      return "Good morning";
+    }
+
+    if (hour < 17) {
+      return "Good afternoon";
+    }
+
+    return "Good evening";
+  };
+
+
+  // ======================================================
+  // FORMAT MONEY
+  // ======================================================
+
+  const formatCurrency =
+    (value) => {
+
+      const amount =
+        Number(value) || 0;
+
+      return new Intl.NumberFormat(
+        "en-IN",
+        {
+          style: "currency",
+          currency: "INR",
+          maximumFractionDigits: 0,
+        }
+      ).format(amount);
+
+    };
+
+
+  // ======================================================
+  // FORMAT DATE
+  // ======================================================
+
+  const getDate =
+    (value) => {
+
+      if (!value) {
+        return null;
+      }
+
+      const date =
+        new Date(value);
+
+      if (
+        Number.isNaN(
+          date.getTime()
+        )
+      ) {
+
+        return null;
+
+      }
+
+      return date;
+
+    };
+
+
+  // ======================================================
+  // CURRENT MONTH
+  // ======================================================
+
+  const now =
+    new Date();
+
+
+  const currentYear =
+    now.getFullYear();
+
+
+  const currentMonth =
+    now.getMonth();
+
+
+  // ======================================================
+  // PREVIOUS MONTH
+  // ======================================================
+
+  const previousMonthDate =
+    new Date(
+      currentYear,
+      currentMonth - 1,
+      1
+    );
+
+
+  const previousMonth =
+    previousMonthDate.getMonth();
+
+
+  const previousMonthYear =
+    previousMonthDate.getFullYear();
+
+
+  // ======================================================
+  // CURRENT MONTH ORDERS
+  // ======================================================
+
+  const currentMonthOrders =
+    useMemo(() => {
+
+      return orders.filter(
+        (order) => {
+
+          const date =
+            getDate(
+              order?.createdAt
+            );
+
+          if (!date) {
+            return false;
+          }
+
+          return (
+            date.getFullYear() ===
+              currentYear &&
+            date.getMonth() ===
+              currentMonth
+          );
+
+        }
+      );
+
+    }, [
+      orders,
+      currentYear,
+      currentMonth,
+    ]);
+
+
+  // ======================================================
+  // PREVIOUS MONTH ORDERS
+  // ======================================================
+
+  const previousMonthOrders =
+    useMemo(() => {
+
+      return orders.filter(
+        (order) => {
+
+          const date =
+            getDate(
+              order?.createdAt
+            );
+
+          if (!date) {
+            return false;
+          }
+
+          return (
+            date.getFullYear() ===
+              previousMonthYear &&
+            date.getMonth() ===
+              previousMonth
+          );
+
+        }
+      );
+
+    }, [
+      orders,
+      previousMonth,
+      previousMonthYear,
+    ]);
+
+
+  // ======================================================
+  // TOTAL ORDERS
+  // ======================================================
+
+  const totalOrders =
+    orders.length;
+
+
+  // ======================================================
+  // TOTAL PRODUCTS
+  // ======================================================
+
+  const totalProducts =
+    products.length;
+
+
+  // ======================================================
+  // ACTIVE PRODUCTS
+  // ======================================================
+
+  const activeProducts =
+    products.filter(
+      (product) =>
+        product?.active !== false &&
+        product?.available !== false
+    ).length;
+
+
+  // ======================================================
+  // UNIQUE CUSTOMERS
+  // ======================================================
+
+  const uniqueCustomers =
+    useMemo(() => {
+
+      const customerIds =
+        new Set();
+
+
+      orders.forEach(
+        (order) => {
+
+          if (
+            order?.customerId !==
+              null &&
+            order?.customerId !==
+              undefined
+          ) {
+
+            customerIds.add(
+              String(
+                order.customerId
+              )
+            );
+
+          }
+
+        }
+      );
+
+
+      if (
+        customerIds.size ===
+        0
+      ) {
+
+        const fallback =
+          new Set();
+
+
+        orders.forEach(
+          (order) => {
+
+            const key =
+              order?.customerPhone ||
+              order?.customerEmail ||
+              order?.customerName;
+
+
+            if (key) {
+
+              fallback.add(
+                String(key)
+                  .trim()
+                  .toLowerCase()
+              );
+
+            }
+
+          }
+        );
+
+
+        return fallback.size;
+
+      }
+
+
+      return customerIds.size;
+
+    }, [
+      orders,
+    ]);
+
+
+  // ======================================================
+  // CURRENT MONTH REVENUE
+  // ======================================================
+
+  const currentMonthRevenue =
+    useMemo(() => {
+
+      return currentMonthOrders.reduce(
+        (
+          total,
+          order
+        ) => {
+
+          const status =
+            String(
+              order?.orderStatus ||
+              ""
+            ).toUpperCase();
+
+
+          if (
+            status ===
+            "CANCELLED"
+          ) {
+
+            return total;
+
+          }
+
+
+          return (
+            total +
+            Number(
+              order?.totalAmount ||
+              0
+            )
+          );
+
+        },
+        0
+      );
+
+    }, [
+      currentMonthOrders,
+    ]);
+
+
+  // ======================================================
+  // PREVIOUS MONTH REVENUE
+  // ======================================================
+
+  const previousMonthRevenue =
+    useMemo(() => {
+
+      return previousMonthOrders.reduce(
+        (
+          total,
+          order
+        ) => {
+
+          const status =
+            String(
+              order?.orderStatus ||
+              ""
+            ).toUpperCase();
+
+
+          if (
+            status ===
+            "CANCELLED"
+          ) {
+
+            return total;
+
+          }
+
+
+          return (
+            total +
+            Number(
+              order?.totalAmount ||
+              0
+            )
+          );
+
+        },
+        0
+      );
+
+    }, [
+      previousMonthOrders,
+    ]);
+
+
+  // ======================================================
+  // MONTHLY ORDER CHANGE
+  // ======================================================
+
+  const orderChange =
+    useMemo(() => {
+
+      if (
+        previousMonthOrders.length ===
+        0
+      ) {
+
+        if (
+          currentMonthOrders.length >
+          0
+        ) {
+
+          return "+100%";
+
+        }
+
+        return "0%";
+
+      }
+
+
+      const change =
+        (
+          (
+            currentMonthOrders.length -
+            previousMonthOrders.length
+          ) /
+          previousMonthOrders.length
+        ) *
+        100;
+
+
+      return `${
+        change >= 0
+          ? "+"
+          : ""
+      }${change.toFixed(1)}%`;
+
+    }, [
+      currentMonthOrders,
+      previousMonthOrders,
+    ]);
+
+
+  // ======================================================
+  // REVENUE CHANGE
+  // ======================================================
+
+  const revenueChange =
+    useMemo(() => {
+
+      if (
+        previousMonthRevenue ===
+        0
+      ) {
+
+        if (
+          currentMonthRevenue >
+          0
+        ) {
+
+          return "+100%";
+
+        }
+
+        return "0%";
+
+      }
+
+
+      const change =
+        (
+          (
+            currentMonthRevenue -
+            previousMonthRevenue
+          ) /
+          previousMonthRevenue
+        ) *
+        100;
+
+
+      return `${
+        change >= 0
+          ? "+"
+          : ""
+      }${change.toFixed(1)}%`;
+
+    }, [
+      currentMonthRevenue,
+      previousMonthRevenue,
+    ]);
+
+
+  // ======================================================
+  // CUSTOMER CURRENT MONTH
+  // ======================================================
+
+  const currentMonthCustomers =
+    useMemo(() => {
+
+      const customers =
+        new Set();
+
+
+      currentMonthOrders.forEach(
+        (order) => {
+
+          const key =
+            order?.customerId ??
+            order?.customerPhone ??
+            order?.customerEmail ??
+            order?.customerName;
+
+
+          if (key) {
+
+            customers.add(
+              String(key)
+                .trim()
+                .toLowerCase()
+            );
+
+          }
+
+        }
+      );
+
+
+      return customers.size;
+
+    }, [
+      currentMonthOrders,
+    ]);
+
+
+  // ======================================================
+  // CUSTOMER PREVIOUS MONTH
+  // ======================================================
+
+  const previousMonthCustomers =
+    useMemo(() => {
+
+      const customers =
+        new Set();
+
+
+      previousMonthOrders.forEach(
+        (order) => {
+
+          const key =
+            order?.customerId ??
+            order?.customerPhone ??
+            order?.customerEmail ??
+            order?.customerName;
+
+
+          if (key) {
+
+            customers.add(
+              String(key)
+                .trim()
+                .toLowerCase()
+            );
+
+          }
+
+        }
+      );
+
+
+      return customers.size;
+
+    }, [
+      previousMonthOrders,
+    ]);
+
+
+  // ======================================================
+  // CUSTOMER CHANGE
+  // ======================================================
+
+  const customerChange =
+    useMemo(() => {
+
+      if (
+        previousMonthCustomers ===
+        0
+      ) {
+
+        if (
+          currentMonthCustomers >
+          0
+        ) {
+
+          return "+100%";
+
+        }
+
+        return "0%";
+
+      }
+
+
+      const change =
+        (
+          (
+            currentMonthCustomers -
+            previousMonthCustomers
+          ) /
+          previousMonthCustomers
+        ) *
+        100;
+
+
+      return `${
+        change >= 0
+          ? "+"
+          : ""
+      }${change.toFixed(1)}%`;
+
+    }, [
+      currentMonthCustomers,
+      previousMonthCustomers,
+    ]);
+
+
+  // ======================================================
+  // ACTIVE CATEGORY COUNT
+  // ======================================================
+
+  const activeCategories =
+    categories.filter(
+      (category) =>
+        category?.active !== false
+    ).length;
+
+
+  // ======================================================
+  // ORDER STATUS COUNTS
+  // ======================================================
+
+  const orderStatusCounts =
+    useMemo(() => {
+
+      const counts = {
+
+        New: 0,
+
+        Confirmed: 0,
+
+        Packed: 0,
+
+        "Out for Delivery": 0,
+
+        Delivered: 0,
+
+        Cancelled: 0,
+
+      };
+
+
+      orders.forEach(
+        (order) => {
+
+          const backendStatus =
+            String(
+              order?.orderStatus ||
+              "PENDING"
+            ).toUpperCase();
+
+
+          const frontendStatus =
+            FRONTEND_STATUS_MAP[
+              backendStatus
+            ] || "New";
+
+
+          if (
+            counts[
+              frontendStatus
+            ] !== undefined
+          ) {
+
+            counts[
+              frontendStatus
+            ] += 1;
+
+          }
+
+        }
+      );
+
+
+      return counts;
+
+    }, [
+      orders,
+    ]);
+
+
+  // ======================================================
+  // ORDER OVERVIEW TOTAL
+  // ======================================================
+
+  const overviewTotal =
+    Object.values(
+      orderStatusCounts
+    ).reduce(
+      (
+        total,
+        value
+      ) =>
+        total + value,
+      0
+    );
+
+
+  // ======================================================
+  // RECENT ORDERS
+  // ======================================================
+
+  const recentOrders =
+    useMemo(() => {
+
+      return [
+        ...orders,
+      ]
+        .sort(
+          (
+            first,
+            second
+          ) => {
+
+            const firstDate =
+              getDate(
+                first?.createdAt
+              )?.getTime() || 0;
+
+
+            const secondDate =
+              getDate(
+                second?.createdAt
+              )?.getTime() || 0;
+
+
+            return (
+              secondDate -
+              firstDate
+            );
+
+          }
+        )
+        .slice(
+          0,
+          5
+        );
+
+    }, [
+      orders,
+    ]);
+
+
+  // ======================================================
+  // FORMAT ORDER STATUS
+  // ======================================================
+
+  const getOrderStatus =
+    (order) => {
+
+      const backendStatus =
+        String(
+          order?.orderStatus ||
+          "PENDING"
+        ).toUpperCase();
+
+
+      return (
+        FRONTEND_STATUS_MAP[
+          backendStatus
+        ] || "New"
+      );
+
+    };
+
+
+  // ======================================================
+  // ORDER NUMBER
+  // ======================================================
+
+  const getOrderNumber =
+    (order) => {
+
+      return (
+        order?.orderNumber ||
+        `#${order?.id || ""}`
+      );
+
+    };
+
+
+  // ======================================================
+  // CUSTOMER NAME
+  // ======================================================
+
+  const getCustomerName =
+    (order) => {
+
+      return (
+        order?.customerName ||
+        "Unknown Customer"
+      );
+
+    };
+
+
+  // ======================================================
+  // ORDER AMOUNT
+  // ======================================================
+
+  const getOrderAmount =
+    (order) => {
+
+      return formatCurrency(
+        order?.totalAmount
+      );
+
+    };
+
+
+  // ======================================================
+  // NOTIFICATIONS
+  // ======================================================
+
+  const notifications =
+    useMemo(() => {
+
+      const items = [];
+
+
+      // ==================================================
+      // NEW ORDERS
+      // ==================================================
+
+      orders
+        .filter(
+          (order) => {
+
+            const status =
+              String(
+                order?.orderStatus ||
+                "PENDING"
+              ).toUpperCase();
+
+            return (
+              status ===
+              "PENDING"
+            );
+
+          }
+        )
+        .sort(
+          (
+            first,
+            second
+          ) => {
+
+            const firstDate =
+              getDate(
+                first?.createdAt
+              )?.getTime() || 0;
+
+
+            const secondDate =
+              getDate(
+                second?.createdAt
+              )?.getTime() || 0;
+
+
+            return (
+              secondDate -
+              firstDate
+            );
+
+          }
+        )
+        .slice(
+          0,
+          5
+        )
+        .forEach(
+          (order) => {
+
+            items.push({
+
+              id:
+                `new-order-${
+                  order?.id ||
+                  order?.orderNumber ||
+                  "order"
+                }`,
+
+              type:
+                "order",
+
+              title:
+                "New order received",
+
+              message:
+                `${getOrderNumber(
+                  order
+                )} from ${getCustomerName(
+                  order
+                )}`,
+
+              icon:
+                ShoppingCart,
+
+              time:
+                getDate(
+                  order?.createdAt
+                ),
+
+            });
+
+          }
+        );
+
+
+      // ==================================================
+      // STOCK NOTIFICATIONS
+      // ==================================================
+
+      products.forEach(
+        (product) => {
+
+          const variants =
+            Array.isArray(
+              product?.variants
+            )
+              ? product.variants
+              : [];
+
+
+          // ==================================================
+          // PRODUCT VARIANTS
+          // ==================================================
+
+          if (
+            variants.length > 0
+          ) {
+
+            variants.forEach(
+              (variant) => {
+
+                const rawStock =
+                  variant?.stockQuantity ??
+                  variant?.stock ??
+                  variant?.quantity;
+
+
+                if (
+                  rawStock ===
+                    undefined ||
+                  rawStock ===
+                    null
+                ) {
+
+                  return;
+
+                }
+
+
+                const stock =
+                  Number(
+                    rawStock
+                  );
+
+
+                if (
+                  !Number.isFinite(
+                    stock
+                  )
+                ) {
+
+                  return;
+
+                }
+
+
+                const variantName =
+                  variant?.name ||
+                  variant?.value ||
+                  variant?.unit ||
+                  "Variant";
+
+
+                if (
+                  stock <= 0
+                ) {
+
+                  items.push({
+
+                    id:
+                      `out-stock-${
+                        product?.id ||
+                        product?.name
+                      }-${
+                        variant?.id ||
+                        variantName
+                      }`,
+
+                    type:
+                      "danger",
+
+                    title:
+                      "Out of stock",
+
+                    message:
+                      `${
+                        product?.name ||
+                        "Product"
+                      } (${
+                        variantName
+                      }) is out of stock`,
+
+                    icon:
+                      AlertCircle,
+
+                    time:
+                      null,
+
+                  });
+
+                } else if (
+                  stock <= 10
+                ) {
+
+                  items.push({
+
+                    id:
+                      `low-stock-${
+                        product?.id ||
+                        product?.name
+                      }-${
+                        variant?.id ||
+                        variantName
+                      }`,
+
+                    type:
+                      "warning",
+
+                    title:
+                      "Low stock alert",
+
+                    message:
+                      `${
+                        product?.name ||
+                        "Product"
+                      } (${
+                        variantName
+                      }) has only ${
+                        stock
+                      } left`,
+
+                    icon:
+                      AlertCircle,
+
+                    time:
+                      null,
+
+                  });
+
+                }
+
+              }
+            );
+
+
+            return;
+
+          }
+
+
+          // ==================================================
+          // NORMAL PRODUCT STOCK
+          // ==================================================
+
+          const rawStock =
+            product?.stockQuantity ??
+            product?.stock ??
+            product?.quantity;
+
+
+          if (
+            rawStock ===
+              undefined ||
+            rawStock ===
+              null
+          ) {
+
+            return;
+
+          }
+
+
+          const stock =
+            Number(
+              rawStock
+            );
+
+
+          if (
+            !Number.isFinite(
+              stock
+            )
+          ) {
+
+            return;
+
+          }
+
+
+          if (
+            stock <= 0
+          ) {
+
+            items.push({
+
+              id:
+                `out-stock-${
+                  product?.id ||
+                  product?.name
+                }`,
+
+              type:
+                "danger",
+
+              title:
+                "Out of stock",
+
+              message:
+                `${
+                  product?.name ||
+                  "Product"
+                } is out of stock`,
+
+              icon:
+                AlertCircle,
+
+              time:
+                null,
+
+            });
+
+          } else if (
+            stock <= 10
+          ) {
+
+            items.push({
+
+              id:
+                `low-stock-${
+                  product?.id ||
+                  product?.name
+                }`,
+
+              type:
+                "warning",
+
+              title:
+                "Low stock alert",
+
+              message:
+                `${
+                  product?.name ||
+                  "Product"
+                } has only ${
+                  stock
+                } left`,
+
+              icon:
+                AlertCircle,
+
+              time:
+                null,
+
+            });
+
+          }
+
+        }
+      );
+
+
+      return items;
+
+    }, [
+      orders,
+      products,
+    ]);
+
+
+  const notificationCount =
+    notifications.length;
+
+
+  // ======================================================
+  // RETRY
+  // ======================================================
+
+  const handleRetry =
+    () => {
+
+      loadDashboardData();
+
+    };
+
+
+  // ======================================================
+  // AUTH GUARD
+  // ======================================================
+
+  if (
+    authenticated !== "true"
+  ) {
+
+    return null;
+
+  }
+
+
+  // ======================================================
+  // UI
+  // ======================================================
+
   return (
+
     <div
       className="
         min-h-screen
@@ -154,11 +1736,156 @@ function Dashboard() {
       "
     >
 
+
+      {/* ==================================================
+          LOGOUT CONFIRMATION POPUP
+      ================================================== */}
+
+      {logoutPopupOpen && (
+
+        <div
+          className="
+            fixed
+            inset-0
+            z-[200]
+            flex
+            items-center
+            justify-center
+            bg-[#211B38]/50
+            px-4
+            backdrop-blur-sm
+          "
+        >
+
+          <motion.div
+            initial={{
+              opacity: 0,
+              scale: 0.95,
+              y: 10,
+            }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+            }}
+            className="
+              w-full
+              max-w-sm
+              rounded-2xl
+              border
+              border-[#E5DFFF]
+              bg-white
+              p-6
+              shadow-2xl
+            "
+          >
+
+            <div
+              className="
+                flex
+                h-12
+                w-12
+                items-center
+                justify-center
+                rounded-full
+                bg-red-50
+                text-red-500
+              "
+            >
+              <LogOut size={21} />
+            </div>
+
+
+            <h3
+              className="
+                mt-4
+                text-base
+                font-black
+                text-[#211B38]
+              "
+            >
+              Sign out?
+            </h3>
+
+
+            <p
+              className="
+                mt-2
+                text-xs
+                leading-5
+                text-[#81799C]
+              "
+            >
+              Are you sure you want to sign out of the admin panel?
+            </p>
+
+
+            <div
+              className="
+                mt-6
+                flex
+                gap-3
+              "
+            >
+
+              <button
+                type="button"
+                onClick={() =>
+                  setLogoutPopupOpen(false)
+                }
+                className="
+                  flex-1
+                  rounded-xl
+                  border
+                  border-[#E5DFFF]
+                  bg-white
+                  px-4
+                  py-2.5
+                  text-xs
+                  font-bold
+                  text-[#81799C]
+                  transition
+                  hover:bg-[#F8F6FF]
+                "
+              >
+                Cancel
+              </button>
+
+
+              <button
+                type="button"
+                onClick={confirmLogout}
+                className="
+                  flex-1
+                  rounded-xl
+                  bg-red-500
+                  px-4
+                  py-2.5
+                  text-xs
+                  font-bold
+                  text-white
+                  transition
+                  hover:bg-red-600
+                "
+              >
+                Sign Out
+              </button>
+
+            </div>
+
+          </motion.div>
+
+        </div>
+
+      )}
+
+
       {/* ==================================================
           MOBILE OVERLAY
       ================================================== */}
 
       {sidebarOpen && (
+
         <div
           onClick={() =>
             setSidebarOpen(false)
@@ -172,6 +1899,7 @@ function Dashboard() {
             lg:hidden
           "
         />
+
       )}
 
 
@@ -203,7 +1931,8 @@ function Dashboard() {
         `}
       >
 
-        {/* ================================================
+
+        {/* =================================================
             LOGO
         ================================================= */}
 
@@ -226,8 +1955,6 @@ function Dashboard() {
               gap-3
             "
           >
-
-            {/* MYMA LOGO */}
 
             <div
               className="
@@ -257,8 +1984,6 @@ function Dashboard() {
 
             </div>
 
-
-            {/* BRAND */}
 
             <div>
 
@@ -342,69 +2067,81 @@ function Dashboard() {
           </p>
 
 
-          {menuItems.map((item) => {
+          {menuItems.map(
+            (item) => {
 
-            const Icon = item.icon;
-
-            const active =
-              isActive(item.path);
+              const Icon =
+                item.icon;
 
 
-            return (
-              <button
-                key={item.name}
-                type="button"
-                onClick={() =>
-                  handleNavigation(
-                    item.path
-                  )
-                }
-                className={`
-                  flex
-                  w-full
-                  items-center
-                  gap-3
-                  rounded-xl
-                  px-3
-                  py-3
-                  text-left
-                  transition-all
-                  ${
-                    active
-                      ? "bg-[#F0ECFF] text-[#5B3FC4]"
-                      : "text-[#81799C] hover:bg-[#FAF8FF] hover:text-[#5B3FC4]"
+              const active =
+                isActive(
+                  item.path
+                );
+
+
+              return (
+
+                <button
+                  key={
+                    item.name
                   }
-                `}
-              >
-
-                <Icon size={18} />
-
-                <span
-                  className="
-                    text-xs
-                    font-bold
-                  "
+                  type="button"
+                  onClick={() =>
+                    handleNavigation(
+                      item.path
+                    )
+                  }
+                  className={`
+                    flex
+                    w-full
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-3
+                    py-3
+                    text-left
+                    transition-all
+                    ${
+                      active
+                        ? "bg-[#F0ECFF] text-[#5B3FC4]"
+                        : "text-[#81799C] hover:bg-[#FAF8FF] hover:text-[#5B3FC4]"
+                    }
+                  `}
                 >
-                  {item.name}
-                </span>
 
+                  <Icon size={18} />
 
-                {active && (
                   <span
                     className="
-                      ml-auto
-                      h-1.5
-                      w-1.5
-                      rounded-full
-                      bg-[#6B4FD3]
+                      text-xs
+                      font-bold
                     "
-                  />
-                )}
+                  >
+                    {item.name}
+                  </span>
 
-              </button>
-            );
 
-          })}
+                  {active && (
+
+                    <span
+                      className="
+                        ml-auto
+                        h-1.5
+                        w-1.5
+                        rounded-full
+                        bg-[#6B4FD3]
+                      "
+                    />
+
+                  )}
+
+                </button>
+
+              );
+
+            }
+          )}
 
         </nav>
 
@@ -468,16 +2205,17 @@ function Dashboard() {
                   text-[#211B38]
                 "
               >
-                MYMA Admin
+                {adminName}
               </p>
 
               <p
                 className="
+                  truncate
                   text-[9px]
                   text-[#9B92B4]
                 "
               >
-                Administrator
+                {adminRole}
               </p>
 
             </div>
@@ -487,7 +2225,9 @@ function Dashboard() {
 
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={
+              handleLogout
+            }
             className="
               flex
               w-full
@@ -525,6 +2265,7 @@ function Dashboard() {
           lg:pl-64
         "
       >
+
 
         {/* =================================================
             HEADER
@@ -625,12 +2366,15 @@ function Dashboard() {
             "
           >
 
-            {/* Notification */}
+            {/* REFRESH */}
 
             <button
               type="button"
+              onClick={
+                handleRetry
+              }
+              disabled={loading}
               className="
-                relative
                 flex
                 h-10
                 w-10
@@ -641,27 +2385,425 @@ function Dashboard() {
                 border-[#E5DFFF]
                 bg-white
                 text-[#6B4FD3]
+                transition
+                hover:bg-[#F8F6FF]
+                disabled:opacity-50
               "
+              title="Refresh dashboard"
             >
 
-              <Bell size={18} />
-
-              <span
-                className="
-                  absolute
-                  right-2
-                  top-2
-                  h-2
-                  w-2
-                  rounded-full
-                  bg-red-500
-                "
+              <RefreshCw
+                size={17}
+                className={
+                  loading
+                    ? "animate-spin"
+                    : ""
+                }
               />
 
             </button>
 
 
-            {/* Admin */}
+            {/* =================================================
+                NOTIFICATION
+            ================================================= */}
+
+            <div
+              className="
+                relative
+              "
+            >
+
+              <button
+                type="button"
+                onClick={() =>
+                  setNotificationOpen(
+                    (current) =>
+                      !current
+                  )
+                }
+                className="
+                  relative
+                  flex
+                  h-10
+                  w-10
+                  items-center
+                  justify-center
+                  rounded-xl
+                  border
+                  border-[#E5DFFF]
+                  bg-white
+                  text-[#6B4FD3]
+                  transition
+                  hover:bg-[#F8F6FF]
+                "
+                title="Notifications"
+              >
+
+                <Bell
+                  size={18}
+                />
+
+
+                {notificationCount >
+                  0 && (
+
+                  <span
+                    className="
+                      absolute
+                      -right-1
+                      -top-1
+                      flex
+                      h-5
+                      min-w-5
+                      items-center
+                      justify-center
+                      rounded-full
+                      bg-red-500
+                      px-1
+                      text-[8px]
+                      font-black
+                      text-white
+                    "
+                  >
+                    {
+                      notificationCount >
+                      99
+                        ? "99+"
+                        : notificationCount
+                    }
+                  </span>
+
+                )}
+
+              </button>
+
+
+              {/* =================================================
+                  NOTIFICATION DROPDOWN
+              ================================================= */}
+
+              {notificationOpen && (
+
+                <div
+                  className="
+                    absolute
+                    right-0
+                    top-12
+                    z-[100]
+                    w-[340px]
+                    max-w-[calc(100vw-2rem)]
+                    overflow-hidden
+                    rounded-2xl
+                    border
+                    border-[#E5DFFF]
+                    bg-white
+                    shadow-2xl
+                  "
+                >
+
+                  {/* HEADER */}
+
+                  <div
+                    className="
+                      flex
+                      items-center
+                      justify-between
+                      border-b
+                      border-[#EEE9FF]
+                      px-4
+                      py-3
+                    "
+                  >
+
+                    <div>
+
+                      <h3
+                        className="
+                          text-sm
+                          font-black
+                          text-[#211B38]
+                        "
+                      >
+                        Notifications
+                      </h3>
+
+                      <p
+                        className="
+                          mt-0.5
+                          text-[9px]
+                          text-[#9B92B4]
+                        "
+                      >
+                        Latest supermarket activity
+                      </p>
+
+                    </div>
+
+
+                    <span
+                      className="
+                        rounded-full
+                        bg-[#F0ECFF]
+                        px-2
+                        py-1
+                        text-[8px]
+                        font-black
+                        text-[#6B4FD3]
+                      "
+                    >
+                      {notificationCount}
+                    </span>
+
+                  </div>
+
+
+                  {/* EMPTY */}
+
+                  {notifications.length ===
+                  0 ? (
+
+                    <div
+                      className="
+                        flex
+                        min-h-[180px]
+                        flex-col
+                        items-center
+                        justify-center
+                        px-5
+                        text-center
+                      "
+                    >
+
+                      <div
+                        className="
+                          flex
+                          h-12
+                          w-12
+                          items-center
+                          justify-center
+                          rounded-full
+                          bg-[#F0ECFF]
+                          text-[#6B4FD3]
+                        "
+                      >
+
+                        <Bell
+                          size={20}
+                        />
+
+                      </div>
+
+
+                      <p
+                        className="
+                          mt-3
+                          text-xs
+                          font-black
+                          text-[#211B38]
+                        "
+                      >
+                        No new notifications
+                      </p>
+
+
+                      <p
+                        className="
+                          mt-1
+                          text-[9px]
+                          text-[#9B92B4]
+                        "
+                      >
+                        Everything looks good.
+                      </p>
+
+                    </div>
+
+                  ) : (
+
+                    <div
+                      className="
+                        max-h-[360px]
+                        overflow-y-auto
+                      "
+                    >
+
+                      {notifications.map(
+                        (
+                          notification
+                        ) => {
+
+                          const Icon =
+                            notification.icon;
+
+
+                          return (
+
+                            <button
+                              key={
+                                notification.id
+                              }
+                              type="button"
+                              onClick={() => {
+
+                                setNotificationOpen(
+                                  false
+                                );
+
+
+                                if (
+                                  notification.type ===
+                                  "order"
+                                ) {
+
+                                  navigate(
+                                    "/orders"
+                                  );
+
+                                } else {
+
+                                  navigate(
+                                    "/products"
+                                  );
+
+                                }
+
+                              }}
+                              className="
+                                flex
+                                w-full
+                                items-start
+                                gap-3
+                                border-b
+                                border-[#F2EFF8]
+                                px-4
+                                py-3
+                                text-left
+                                transition
+                                hover:bg-[#FBFAFF]
+                              "
+                            >
+
+                              {/* ICON */}
+
+                              <div
+                                className={`
+                                  flex
+                                  h-9
+                                  w-9
+                                  shrink-0
+                                  items-center
+                                  justify-center
+                                  rounded-xl
+                                  ${
+                                    notification.type ===
+                                    "danger"
+                                      ? "bg-red-50 text-red-500"
+                                      : notification.type ===
+                                        "warning"
+                                        ? "bg-orange-50 text-orange-500"
+                                        : "bg-[#F0ECFF] text-[#6B4FD3]"
+                                  }
+                                `}
+                              >
+
+                                <Icon
+                                  size={15}
+                                />
+
+                              </div>
+
+
+                              {/* CONTENT */}
+
+                              <div
+                                className="
+                                  min-w-0
+                                  flex-1
+                                "
+                              >
+
+                                <p
+                                  className="
+                                    text-[10px]
+                                    font-black
+                                    text-[#211B38]
+                                  "
+                                >
+                                  {
+                                    notification.title
+                                  }
+                                </p>
+
+
+                                <p
+                                  className="
+                                    mt-1
+                                    text-[9px]
+                                    leading-4
+                                    text-[#81799C]
+                                  "
+                                >
+                                  {
+                                    notification.message
+                                  }
+                                </p>
+
+
+                                {notification.time && (
+
+                                  <p
+                                    className="
+                                      mt-1
+                                      text-[8px]
+                                      font-semibold
+                                      text-[#A29AB8]
+                                    "
+                                  >
+
+                                    {
+                                      notification.time.toLocaleString(
+                                        "en-IN",
+                                        {
+                                          day:
+                                            "2-digit",
+                                          month:
+                                            "short",
+                                          hour:
+                                            "2-digit",
+                                          minute:
+                                            "2-digit",
+                                        }
+                                      )
+                                    }
+
+                                  </p>
+
+                                )}
+
+                              </div>
+
+                            </button>
+
+                          );
+
+                        }
+                      )}
+
+                    </div>
+
+                  )}
+
+                </div>
+
+              )}
+
+            </div>
+
+
+            {/* =================================================
+                ADMIN
+            ================================================= */}
 
             <div
               className="
@@ -697,15 +2839,37 @@ function Dashboard() {
 
               </div>
 
-              <span
+
+              <div
                 className="
-                  text-xs
-                  font-bold
-                  text-[#211B38]
+                  min-w-0
                 "
               >
-                Admin
-              </span>
+
+                <span
+                  className="
+                    block
+                    max-w-[110px]
+                    truncate
+                    text-xs
+                    font-bold
+                    text-[#211B38]
+                  "
+                >
+                  {adminName}
+                </span>
+
+                <span
+                  className="
+                    block
+                    text-[8px]
+                    text-[#9B92B4]
+                  "
+                >
+                  {adminRole}
+                </span>
+
+              </div>
 
             </div>
 
@@ -730,7 +2894,109 @@ function Dashboard() {
           "
         >
 
-          {/* WELCOME */}
+
+          {/* =================================================
+              ERROR
+          ================================================= */}
+
+          {error && (
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: -10,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              className="
+                mb-6
+                flex
+                items-center
+                justify-between
+                gap-4
+                rounded-2xl
+                border
+                border-red-100
+                bg-red-50
+                px-4
+                py-4
+              "
+            >
+
+              <div
+                className="
+                  flex
+                  items-center
+                  gap-3
+                "
+              >
+
+                <AlertCircle
+                  size={19}
+                  className="
+                    shrink-0
+                    text-red-500
+                  "
+                />
+
+
+                <div>
+
+                  <p
+                    className="
+                      text-xs
+                      font-black
+                      text-red-600
+                    "
+                  >
+                    Unable to load dashboard data
+                  </p>
+
+
+                  <p
+                    className="
+                      mt-1
+                      text-[10px]
+                      text-red-500
+                    "
+                  >
+                    {error}
+                  </p>
+
+                </div>
+
+              </div>
+
+
+              <button
+                type="button"
+                onClick={
+                  handleRetry
+                }
+                className="
+                  shrink-0
+                  rounded-xl
+                  bg-red-500
+                  px-3
+                  py-2
+                  text-[10px]
+                  font-black
+                  text-white
+                "
+              >
+                Retry
+              </button>
+
+            </motion.div>
+
+          )}
+
+
+          {/* =================================================
+              WELCOME
+          ================================================= */}
 
           <motion.div
             initial={{
@@ -746,29 +3012,74 @@ function Dashboard() {
             "
           >
 
-            <h2
+            <div
               className="
-                text-2xl
-                font-black
-                tracking-tight
-                text-[#211B38]
-                sm:text-3xl
+                flex
+                flex-col
+                gap-2
+                sm:flex-row
+                sm:items-end
+                sm:justify-between
               "
             >
-              Good afternoon, Admin 👋
-            </h2>
 
-            <p
-              className="
-                mt-1
-                text-xs
-                text-[#81799C]
-                sm:text-sm
-              "
-            >
-              Here's what's happening with
-              your supermarket today.
-            </p>
+              <div>
+
+                <h2
+                  className="
+                    text-2xl
+                    font-black
+                    tracking-tight
+                    text-[#211B38]
+                    sm:text-3xl
+                  "
+                >
+                  {getGreeting()}, {adminName} 👋
+                </h2>
+
+
+                <p
+                  className="
+                    mt-1
+                    text-xs
+                    text-[#81799C]
+                    sm:text-sm
+                  "
+                >
+                  Here's what's happening with
+                  your supermarket today.
+                </p>
+
+              </div>
+
+
+              {lastUpdated && (
+
+                <p
+                  className="
+                    text-[9px]
+                    font-semibold
+                    text-[#9B92B4]
+                  "
+                >
+
+                  Updated{" "}
+
+                  {lastUpdated.toLocaleTimeString(
+                    "en-IN",
+                    {
+                      hour:
+                        "2-digit",
+                      minute:
+                        "2-digit",
+                    }
+                  )}
+
+                </p>
+
+              )}
+
+            </div>
 
           </motion.div>
 
@@ -789,36 +3100,90 @@ function Dashboard() {
 
             <StatCard
               title="Total Orders"
-              value="128"
-              change="+12.5%"
-              icon={ShoppingCart}
-              description="vs last month"
+              value={
+                loading
+                  ? "..."
+                  : totalOrders
+              }
+              change={
+                loading
+                  ? "..."
+                  : orderChange
+              }
+              icon={
+                ShoppingCart
+              }
+              description={
+                currentMonthOrders.length ===
+                1
+                  ? "1 order this month"
+                  : `${currentMonthOrders.length} orders this month`
+              }
               delay={0}
             />
 
+
             <StatCard
               title="Total Products"
-              value="245"
-              change="+8.2%"
+              value={
+                loading
+                  ? "..."
+                  : totalProducts
+              }
+              change={
+                loading
+                  ? "..."
+                  : "LIVE"
+              }
               icon={Box}
-              description="active products"
+              description={
+                loading
+                  ? "Loading products"
+                  : `${activeProducts} active products`
+              }
               delay={0.05}
             />
 
+
             <StatCard
               title="Customers"
-              value="842"
-              change="+18.4%"
+              value={
+                loading
+                  ? "..."
+                  : uniqueCustomers
+              }
+              change={
+                loading
+                  ? "..."
+                  : customerChange
+              }
               icon={Users}
-              description="registered users"
+              description={
+                loading
+                  ? "Loading customers"
+                  : `${currentMonthCustomers} this month`
+              }
               delay={0.1}
             />
 
+
             <StatCard
               title="Revenue"
-              value="₹1,24,500"
-              change="+14.7%"
-              icon={IndianRupee}
+              value={
+                loading
+                  ? "..."
+                  : formatCurrency(
+                      currentMonthRevenue
+                    )
+              }
+              change={
+                loading
+                  ? "..."
+                  : revenueChange
+              }
+              icon={
+                IndianRupee
+              }
               description="this month"
               delay={0.15}
             />
@@ -839,7 +3204,10 @@ function Dashboard() {
             "
           >
 
-            {/* RECENT ORDERS */}
+
+            {/* =================================================
+                RECENT ORDERS
+            ================================================= */}
 
             <motion.section
               initial={{
@@ -887,6 +3255,7 @@ function Dashboard() {
                     Recent Orders
                   </h3>
 
+
                   <p
                     className="
                       mt-1
@@ -898,6 +3267,7 @@ function Dashboard() {
                   </p>
 
                 </div>
+
 
                 <button
                   type="button"
@@ -934,40 +3304,64 @@ function Dashboard() {
                 "
               >
 
-                <OrderRow
-                  order="#MYMA884249"
-                  customer="Arun Kumar"
-                  amount="₹899"
-                  status="Packed"
-                />
+                {loading ? (
 
-                <OrderRow
-                  order="#MYMA884250"
-                  customer="Priya S"
-                  amount="₹450"
-                  status="New"
-                />
+                  <DashboardLoadingRows />
 
-                <OrderRow
-                  order="#MYMA884251"
-                  customer="Rahul M"
-                  amount="₹1,200"
-                  status="Delivered"
-                />
+                ) : recentOrders.length ===
+                  0 ? (
 
-                <OrderRow
-                  order="#MYMA884252"
-                  customer="Divya R"
-                  amount="₹675"
-                  status="Out for Delivery"
-                />
+                  <EmptyOrders />
+
+                ) : (
+
+                  recentOrders.map(
+                    (
+                      order,
+                      index
+                    ) => (
+
+                      <OrderRow
+                        key={
+                          order?.id ||
+                          order?.orderNumber ||
+                          index
+                        }
+                        order={
+                          getOrderNumber(
+                            order
+                          )
+                        }
+                        customer={
+                          getCustomerName(
+                            order
+                          )
+                        }
+                        amount={
+                          getOrderAmount(
+                            order
+                          )
+                        }
+                        status={
+                          getOrderStatus(
+                            order
+                          )
+                        }
+                      />
+
+                    )
+                  )
+
+                )}
 
               </div>
 
             </motion.section>
 
 
-            {/* ORDER OVERVIEW */}
+            {/* =================================================
+                ORDER OVERVIEW
+            ================================================= */}
 
             <motion.section
               initial={{
@@ -991,57 +3385,168 @@ function Dashboard() {
               "
             >
 
-              <h3
+              <div
                 className="
-                  text-sm
-                  font-black
-                  text-[#211B38]
+                  flex
+                  items-start
+                  justify-between
+                  gap-3
                 "
               >
-                Order Overview
-              </h3>
 
-              <p
+                <div>
+
+                  <h3
+                    className="
+                      text-sm
+                      font-black
+                      text-[#211B38]
+                    "
+                  >
+                    Order Overview
+                  </h3>
+
+
+                  <p
+                    className="
+                      mt-1
+                      text-[10px]
+                      text-[#9B92B4]
+                    "
+                  >
+                    Current order status
+                  </p>
+
+                </div>
+
+
+                <span
+                  className="
+                    rounded-full
+                    bg-[#F0ECFF]
+                    px-2.5
+                    py-1
+                    text-[9px]
+                    font-black
+                    text-[#6B4FD3]
+                  "
+                >
+                  {overviewTotal}
+                </span>
+
+              </div>
+
+
+              <div
                 className="
-                  mt-1
-                  text-[10px]
-                  text-[#9B92B4]
+                  mt-5
+                  space-y-4
                 "
               >
-                Current order status
-              </p>
-
-
-              <div className="mt-5 space-y-4">
 
                 <ProgressRow
                   label="New Orders"
-                  count="18"
-                  percentage={18}
+                  count={
+                    orderStatusCounts.New
+                  }
+                  percentage={
+                    overviewTotal
+                      ? (
+                          orderStatusCounts.New /
+                          overviewTotal
+                        ) *
+                        100
+                      : 0
+                  }
                 />
+
 
                 <ProgressRow
                   label="Confirmed"
-                  count="24"
-                  percentage={24}
+                  count={
+                    orderStatusCounts.Confirmed
+                  }
+                  percentage={
+                    overviewTotal
+                      ? (
+                          orderStatusCounts.Confirmed /
+                          overviewTotal
+                        ) *
+                        100
+                      : 0
+                  }
                 />
+
 
                 <ProgressRow
                   label="Packed"
-                  count="31"
-                  percentage={31}
+                  count={
+                    orderStatusCounts.Packed
+                  }
+                  percentage={
+                    overviewTotal
+                      ? (
+                          orderStatusCounts.Packed /
+                          overviewTotal
+                        ) *
+                        100
+                      : 0
+                  }
                 />
+
 
                 <ProgressRow
                   label="Out for Delivery"
-                  count="15"
-                  percentage={15}
+                  count={
+                    orderStatusCounts[
+                      "Out for Delivery"
+                    ]
+                  }
+                  percentage={
+                    overviewTotal
+                      ? (
+                          orderStatusCounts[
+                            "Out for Delivery"
+                          ] /
+                          overviewTotal
+                        ) *
+                        100
+                      : 0
+                  }
                 />
+
 
                 <ProgressRow
                   label="Delivered"
-                  count="40"
-                  percentage={40}
+                  count={
+                    orderStatusCounts.Delivered
+                  }
+                  percentage={
+                    overviewTotal
+                      ? (
+                          orderStatusCounts.Delivered /
+                          overviewTotal
+                        ) *
+                        100
+                      : 0
+                  }
+                />
+
+
+                <ProgressRow
+                  label="Cancelled"
+                  count={
+                    orderStatusCounts.Cancelled
+                  }
+                  percentage={
+                    overviewTotal
+                      ? (
+                          orderStatusCounts.Cancelled /
+                          overviewTotal
+                        ) *
+                        100
+                      : 0
+                  }
                 />
 
               </div>
@@ -1055,19 +3560,58 @@ function Dashboard() {
               QUICK ACTIONS
           ================================================= */}
 
-          <section className="mt-6">
+          <section
+            className="
+              mt-6
+            "
+          >
 
-            <div className="mb-4">
+            <div
+              className="
+                mb-4
+                flex
+                items-center
+                justify-between
+              "
+            >
 
-              <h3
+              <div>
+
+                <h3
+                  className="
+                    text-sm
+                    font-black
+                    text-[#211B38]
+                  "
+                >
+                  Quick Actions
+                </h3>
+
+
+                <p
+                  className="
+                    mt-1
+                    text-[9px]
+                    text-[#9B92B4]
+                  "
+                >
+                  Manage your supermarket
+                </p>
+
+              </div>
+
+
+              <div
                 className="
-                  text-sm
-                  font-black
-                  text-[#211B38]
+                  hidden
+                  text-[9px]
+                  font-bold
+                  text-[#9B92B4]
+                  sm:block
                 "
               >
-                Quick Actions
-              </h3>
+                {activeCategories} active categories
+              </div>
 
             </div>
 
@@ -1093,6 +3637,7 @@ function Dashboard() {
                 }
               />
 
+
               <QuickAction
                 icon={PackageCheck}
                 title="Manage Orders"
@@ -1103,6 +3648,7 @@ function Dashboard() {
                   )
                 }
               />
+
 
               <QuickAction
                 icon={Users}
@@ -1115,23 +3661,33 @@ function Dashboard() {
                 }
               />
 
+
               <QuickAction
                 icon={TrendingUp}
-                title="Reports"
-                description="View sales reports"
-                onClick={() => {}}
+                title="Categories"
+                description={
+                  `${activeCategories} active categories`
+                }
+                onClick={() =>
+                  handleNavigation(
+                    "/categories"
+                  )
+                }
               />
 
             </div>
 
           </section>
 
+
         </main>
 
       </div>
 
     </div>
+
   );
+
 }
 
 
@@ -1148,7 +3704,13 @@ function StatCard({
   delay,
 }) {
 
+  const isPositive =
+    String(change)
+      .startsWith("+");
+
+
   return (
+
     <motion.div
       initial={{
         opacity: 0,
@@ -1198,21 +3760,30 @@ function StatCard({
 
 
         <span
-          className="
+          className={`
             flex
             items-center
             gap-1
             rounded-full
-            bg-green-50
             px-2
             py-1
             text-[9px]
             font-black
-            text-green-600
-          "
+            ${
+              isPositive
+                ? "bg-green-50 text-green-600"
+                : "bg-[#F5F2FF] text-[#6B4FD3]"
+            }
+          `}
         >
 
-          <TrendingUp size={11} />
+          {isPositive && (
+
+            <TrendingUp
+              size={11}
+            />
+
+          )}
 
           {change}
 
@@ -1232,6 +3803,7 @@ function StatCard({
         {title}
       </p>
 
+
       <h3
         className="
           mt-1
@@ -1242,6 +3814,7 @@ function StatCard({
       >
         {value}
       </h3>
+
 
       <p
         className="
@@ -1254,7 +3827,9 @@ function StatCard({
       </p>
 
     </motion.div>
+
   );
+
 }
 
 
@@ -1269,24 +3844,8 @@ function OrderRow({
   status,
 }) {
 
-  const statusStyles = {
-
-    New:
-      "bg-blue-50 text-blue-600",
-
-    Packed:
-      "bg-purple-50 text-purple-600",
-
-    Delivered:
-      "bg-green-50 text-green-600",
-
-    "Out for Delivery":
-      "bg-orange-50 text-orange-600",
-
-  };
-
-
   return (
+
     <div
       className="
         flex
@@ -1341,9 +3900,12 @@ function OrderRow({
             {order}
           </p>
 
+
           <p
             className="
               mt-0.5
+              max-w-[180px]
+              truncate
               text-[9px]
               text-[#9B92B4]
             "
@@ -1373,15 +3935,28 @@ function OrderRow({
             py-1
             text-[9px]
             font-black
-            ${statusStyles[status]}
+            ${
+              status === "Confirmed"
+                ? "bg-indigo-50 text-indigo-600"
+                : status === "Packed"
+                  ? "bg-purple-50 text-purple-600"
+                  : status === "Out for Delivery"
+                    ? "bg-orange-50 text-orange-600"
+                    : status === "Delivered"
+                      ? "bg-green-50 text-green-600"
+                      : status === "Cancelled"
+                        ? "bg-red-50 text-red-600"
+                        : "bg-blue-50 text-blue-600"
+            }
           `}
         >
           {status}
         </span>
 
+
         <span
           className="
-            min-w-16
+            min-w-20
             text-right
             text-xs
             font-black
@@ -1391,15 +3966,20 @@ function OrderRow({
           {amount}
         </span>
 
+
         <ChevronRight
           size={15}
-          className="text-[#B0A8C5]"
+          className="
+            text-[#B0A8C5]
+          "
         />
 
       </div>
 
     </div>
+
   );
+
 }
 
 
@@ -1414,6 +3994,7 @@ function ProgressRow({
 }) {
 
   return (
+
     <div>
 
       <div
@@ -1434,6 +4015,7 @@ function ProgressRow({
         >
           {label}
         </span>
+
 
         <span
           className="
@@ -1462,7 +4044,13 @@ function ProgressRow({
             width: 0,
           }}
           animate={{
-            width: `${percentage}%`,
+            width: `${Math.min(
+              100,
+              Math.max(
+                0,
+                percentage
+              )
+            )}%`,
           }}
           transition={{
             duration: 0.7,
@@ -1479,7 +4067,9 @@ function ProgressRow({
       </div>
 
     </div>
+
   );
+
 }
 
 
@@ -1495,6 +4085,7 @@ function QuickAction({
 }) {
 
   return (
+
     <motion.button
       type="button"
       onClick={onClick}
@@ -1541,7 +4132,11 @@ function QuickAction({
       </div>
 
 
-      <div className="min-w-0">
+      <div
+        className="
+          min-w-0
+        "
+      >
 
         <p
           className="
@@ -1552,6 +4147,7 @@ function QuickAction({
         >
           {title}
         </p>
+
 
         <p
           className="
@@ -1576,7 +4172,170 @@ function QuickAction({
       />
 
     </motion.button>
+
   );
+
+}
+
+
+// ======================================================
+// LOADING ROWS
+// ======================================================
+
+function DashboardLoadingRows() {
+
+  return (
+
+    <>
+
+      {[1, 2, 3, 4].map(
+        (item) => (
+
+          <div
+            key={item}
+            className="
+              flex
+              items-center
+              justify-between
+              px-5
+              py-4
+            "
+          >
+
+            <div
+              className="
+                flex
+                items-center
+                gap-3
+              "
+            >
+
+              <div
+                className="
+                  h-9
+                  w-9
+                  animate-pulse
+                  rounded-lg
+                  bg-[#F0ECFF]
+                "
+              />
+
+
+              <div>
+
+                <div
+                  className="
+                    h-3
+                    w-24
+                    animate-pulse
+                    rounded
+                    bg-[#F0ECFF]
+                  "
+                />
+
+
+                <div
+                  className="
+                    mt-2
+                    h-2
+                    w-32
+                    animate-pulse
+                    rounded
+                    bg-[#F5F2FF]
+                  "
+                />
+
+              </div>
+
+            </div>
+
+
+            <div
+              className="
+                h-5
+                w-20
+                animate-pulse
+                rounded-full
+                bg-[#F0ECFF]
+              "
+            />
+
+          </div>
+
+        )
+      )}
+
+    </>
+
+  );
+
+}
+
+
+// ======================================================
+// EMPTY ORDERS
+// ======================================================
+
+function EmptyOrders() {
+
+  return (
+
+    <div
+      className="
+        px-5
+        py-12
+        text-center
+      "
+    >
+
+      <div
+        className="
+          mx-auto
+          flex
+          h-12
+          w-12
+          items-center
+          justify-center
+          rounded-xl
+          bg-[#F0ECFF]
+          text-[#6B4FD3]
+        "
+      >
+
+        <ShoppingCart
+          size={20}
+        />
+
+      </div>
+
+
+      <p
+        className="
+          mt-3
+          text-xs
+          font-black
+          text-[#211B38]
+        "
+      >
+        No orders yet
+      </p>
+
+
+      <p
+        className="
+          mt-1
+          text-[9px]
+          text-[#9B92B4]
+        "
+      >
+        New customer orders will
+        appear here.
+      </p>
+
+    </div>
+
+  );
+
 }
 
 

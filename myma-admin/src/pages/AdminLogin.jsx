@@ -19,6 +19,8 @@ import {
   useNavigate,
 } from "react-router-dom";
 
+import api from "../api/api";
+
 
 function AdminLogin() {
 
@@ -41,19 +43,10 @@ function AdminLogin() {
 
 
   // ==========================================
-  // DEMO ADMIN CREDENTIALS
-  // ==========================================
-
-  const ADMIN_USERNAME = "admin";
-
-  const ADMIN_PASSWORD = "admin123";
-
-
-  // ==========================================
   // LOGIN
   // ==========================================
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
 
     e.preventDefault();
 
@@ -75,40 +68,76 @@ function AdminLogin() {
       return;
     }
 
-
-    if (
-      username !== ADMIN_USERNAME ||
-      password !== ADMIN_PASSWORD
-    ) {
-
-      setError(
-        "Invalid admin username or password."
-      );
-
-      return;
-    }
-
-
     setLoading(true);
 
+    try {
 
-    // Save admin login
+      // ========================================
+      // ADMIN LOGIN API
+      // api.js already contains:
+      // http://localhost:8081/api
+      // ========================================
 
-    localStorage.setItem(
-      "myma_admin_authenticated",
-      "true"
-    );
+      const response = await api.post(
+        "/admin/auth/login",
+        {
+          username: username.trim(),
+          password: password,
+        }
+      );
 
-    localStorage.setItem(
-      "myma_admin_user",
-      JSON.stringify({
-        username: "admin",
-        name: "MYMA Admin",
-      })
-    );
+      const data = response.data;
 
 
-    setTimeout(() => {
+      // ========================================
+      // SAVE REAL ADMIN JWT
+      // ========================================
+
+      localStorage.setItem(
+        "adminToken",
+        data.token
+      );
+
+
+      // ========================================
+      // SAVE ADMIN AUTH STATUS
+      // ========================================
+
+      localStorage.setItem(
+        "myma_admin_authenticated",
+        "true"
+      );
+
+
+      // ========================================
+      // SAVE ADMIN USER
+      // ========================================
+
+      localStorage.setItem(
+        "myma_admin_user",
+        JSON.stringify({
+          adminId: data.adminId,
+          username: data.username,
+          name: data.name,
+          role: data.role,
+        })
+      );
+
+
+      // ========================================
+      // GENERIC TOKEN
+      // KEEP FOR COMPATIBILITY
+      // ========================================
+
+      localStorage.setItem(
+        "token",
+        data.token
+      );
+
+
+      // ========================================
+      // GO TO DASHBOARD
+      // ========================================
 
       navigate(
         "/dashboard",
@@ -117,11 +146,29 @@ function AdminLogin() {
         }
       );
 
-    }, 500);
+    } catch (error) {
+
+      console.error(
+        "Admin login failed:",
+        error
+      );
+
+      setError(
+        error.response?.data?.message ||
+        error.message ||
+        "Unable to login. Please try again."
+      );
+
+    } finally {
+
+      setLoading(false);
+
+    }
   };
 
 
   return (
+
     <main
       className="
         relative
@@ -254,44 +301,46 @@ function AdminLogin() {
 
           {/* Logo */}
 
-<motion.div
-  initial={{
-    scale: 0.7,
-    opacity: 0,
-  }}
-  animate={{
-    scale: 1,
-    opacity: 1,
-  }}
-  transition={{
-    type: "spring",
-    stiffness: 180,
-  }}
-  className="
-    relative
-    mx-auto
-    flex
-    h-20
-    w-20
-    items-center
-    justify-center
-    overflow-hidden
-    rounded-3xl
-    bg-white
-    p-2
-    shadow-xl
-  "
->
-  <img
-    src="/myma-logo.png"
-    alt="MYMA Supermarket"
-    className="
-      h-full
-      w-full
-      object-contain
-    "
-  />
-</motion.div>
+          <motion.div
+            initial={{
+              scale: 0.7,
+              opacity: 0,
+            }}
+            animate={{
+              scale: 1,
+              opacity: 1,
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 180,
+            }}
+            className="
+              relative
+              mx-auto
+              flex
+              h-20
+              w-20
+              items-center
+              justify-center
+              overflow-hidden
+              rounded-3xl
+              bg-white
+              p-2
+              shadow-xl
+            "
+          >
+
+            <img
+              src="/myma-logo.png"
+              alt="MYMA Supermarket"
+              className="
+                h-full
+                w-full
+                object-contain
+              "
+            />
+
+          </motion.div>
 
 
           <p
@@ -378,10 +427,12 @@ function AdminLogin() {
                 bg-[#EDE8FF]
               "
             >
+
               <ShieldCheck
                 size={18}
                 className="text-[#6B4FD3]"
               />
+
             </div>
 
             <div>
@@ -587,6 +638,7 @@ function AdminLogin() {
             {/* Error */}
 
             {error && (
+
               <motion.div
                 initial={{
                   opacity: 0,
@@ -610,6 +662,7 @@ function AdminLogin() {
               >
                 {error}
               </motion.div>
+
             )}
 
 
@@ -651,6 +704,7 @@ function AdminLogin() {
             >
 
               {loading ? (
+
                 <>
                   <span
                     className="
@@ -666,12 +720,15 @@ function AdminLogin() {
 
                   Signing in...
                 </>
+
               ) : (
+
                 <>
                   <LogIn size={18} />
 
                   Login to Admin Panel
                 </>
+
               )}
 
             </motion.button>
@@ -702,7 +759,7 @@ function AdminLogin() {
                 text-[#7C5CFC]
               "
             >
-              Development Login
+              Admin Backend Login
             </p>
 
             <div
@@ -733,10 +790,11 @@ function AdminLogin() {
                     text-[#211B38]
                   "
                 >
-                  admin
+                  Use your admin account
                 </p>
 
               </div>
+
 
               <div>
 
@@ -757,7 +815,7 @@ function AdminLogin() {
                     text-[#211B38]
                   "
                 >
-                  admin123
+                  Authenticated by backend
                 </p>
 
               </div>
@@ -783,7 +841,9 @@ function AdminLogin() {
       </motion.div>
 
     </main>
+
   );
 }
+
 
 export default AdminLogin;

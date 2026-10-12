@@ -1,208 +1,276 @@
 import { motion } from "framer-motion";
 
 import {
-  AlertTriangle,
+  ArrowLeft,
   Box,
   CheckCircle2,
   Edit3,
   Image as ImageIcon,
-  PackagePlus,
+  PackageCheck,
+  PackageX,
   Plus,
   Search,
   Trash2,
   X,
 } from "lucide-react";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useNavigate } from "react-router-dom";
 
-
-// ======================================================
-// DEMO PRODUCTS
-// Later Java + MySQL API-la replace pannuvom
-// ======================================================
-
-const initialProducts = [
-  {
-    id: 1,
-    name: "Fresh Apples",
-    category: "Fruits",
-    price: 120,
-    stock: 85,
-    unit: "1 kg",
-    image: "🍎",
-    status: "Active",
-  },
-
-  {
-    id: 2,
-    name: "Fresh Tomatoes",
-    category: "Vegetables",
-    price: 80,
-    stock: 120,
-    unit: "1 kg",
-    image: "🍅",
-    status: "Active",
-  },
-
-  {
-    id: 3,
-    name: "Fresh Milk",
-    category: "Dairy",
-    price: 62,
-    stock: 45,
-    unit: "1 L",
-    image: "🥛",
-    status: "Active",
-  },
-
-  {
-    id: 4,
-    name: "Bananas",
-    category: "Fruits",
-    price: 60,
-    stock: 8,
-    unit: "1 dozen",
-    image: "🍌",
-    status: "Active",
-  },
-
-  {
-    id: 5,
-    name: "Potatoes",
-    category: "Vegetables",
-    price: 40,
-    stock: 0,
-    unit: "1 kg",
-    image: "🥔",
-    status: "Inactive",
-  },
-
-  {
-    id: 6,
-    name: "Carrots",
-    category: "Vegetables",
-    price: 95,
-    stock: 65,
-    unit: "1 kg",
-    image: "🥕",
-    status: "Active",
-  },
-];
-
+import api from "../api/api";
 
 // ======================================================
 // PRODUCTS
 // ======================================================
 
 function Products() {
-
   const navigate = useNavigate();
 
-  const [products, setProducts] =
-    useState(initialProducts);
+  // ====================================================
+  // PRODUCTS
+  // ====================================================
 
-  const [search, setSearch] =
-    useState("");
-
-  const [category, setCategory] =
-    useState("All");
-
-  const [deleteProduct, setDeleteProduct] =
-    useState(null);
-
+  const [products, setProducts] = useState([]);
 
   // ====================================================
   // CATEGORIES
   // ====================================================
 
-  const categories = [
-    "All",
-    ...new Set(
-      products.map(
-        (product) => product.category
-      )
-    ),
-  ];
-
+  const [categories, setCategories] = useState([]);
 
   // ====================================================
-  // FILTER
+  // LOADING
   // ====================================================
 
-  const filteredProducts = useMemo(() => {
-
-    return products.filter(
-      (product) => {
-
-        const matchesSearch =
-          product.name
-            .toLowerCase()
-            .includes(
-              search.toLowerCase()
-            );
-
-        const matchesCategory =
-          category === "All" ||
-          product.category === category;
-
-        return (
-          matchesSearch &&
-          matchesCategory
-        );
-      }
-    );
-
-  }, [
-    products,
-    search,
-    category,
-  ]);
-
+  const [loading, setLoading] = useState(true);
 
   // ====================================================
-  // DELETE
+  // ERROR
   // ====================================================
 
-  const handleDelete = () => {
+  const [error, setError] = useState("");
 
-    if (!deleteProduct) {
-      return;
-    }
+  // ====================================================
+  // SEARCH
+  // ====================================================
 
-    setProducts(
-      (currentProducts) =>
-        currentProducts.filter(
-          (product) =>
-            product.id !==
-            deleteProduct.id
-        )
-    );
+  const [search, setSearch] = useState("");
 
-    setDeleteProduct(null);
-  };
+  // ====================================================
+  // CATEGORY
+  // ====================================================
 
+  const [category, setCategory] = useState("All");
 
   // ====================================================
   // STOCK STATUS
   // ====================================================
 
-  const getStockStatus = (stock) => {
+  const [stockFilter, setStockFilter] = useState("All");
 
-    if (stock === 0) {
+  // ====================================================
+  // DELETE PRODUCT
+  // ====================================================
+
+  const [deleteProduct, setDeleteProduct] = useState(null);
+
+  // ====================================================
+  // CATEGORY OPTIONS
+  // ====================================================
+
+  const categoryOptions = [
+    "All",
+    ...categories
+      .filter(
+        (item) =>
+          item &&
+          item.active !== false
+      )
+      .map(
+        (item) =>
+          item.name
+      )
+      .filter(Boolean),
+  ];
+
+  // ====================================================
+  // LOAD PRODUCTS + CATEGORIES
+  // ====================================================
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const [
+          productsResponse,
+          categoriesResponse,
+        ] = await Promise.all([
+          api.get("/admin/products"),
+          api.get("/admin/categories"),
+        ]);
+
+        const productsData =
+          productsResponse.data;
+
+        const categoriesData =
+          categoriesResponse.data;
+
+        // ==================================================
+        // MAP BACKEND PRODUCT DATA
+        // ==================================================
+
+        setProducts(
+          Array.isArray(productsData)
+            ? productsData.map((product) => ({
+                ...product,
+
+                // S3 IMAGE
+                image:
+                  product.imageUrl ||
+                  product.imageUrl2 ||
+                  product.imageUrl3 ||
+                  product.imageUrl4 ||
+                  null,
+
+                // STOCK STATUS
+                stockStatus:
+                  product.stockStatus ===
+                  "OUT_OF_STOCK"
+                    ? "OUT_OF_STOCK"
+                    : "IN_STOCK",
+
+                // STATUS
+                status:
+                  product.active === true
+                    ? "Active"
+                    : "Inactive",
+              }))
+            : []
+        );
+
+        setCategories(
+          Array.isArray(categoriesData)
+            ? categoriesData
+            : []
+        );
+      } catch (err) {
+        console.error(
+          "Unable to load products:",
+          err
+        );
+
+        setError(
+          err.response?.data?.message ||
+          err.response?.data?.error ||
+          err.message ||
+          "Unable to load products."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // ====================================================
+  // FILTER PRODUCTS
+  // ====================================================
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((product) => {
+      const productName =
+        product.name || "";
+
+      const productCategory =
+        product.category || "";
+
+      // SEARCH FILTER
+      const matchesSearch =
+        productName
+          .toLowerCase()
+          .includes(
+            search.toLowerCase()
+          );
+
+      // CATEGORY FILTER
+      const matchesCategory =
+        category === "All" ||
+        productCategory === category;
+
+      // STOCK FILTER
+      const matchesStock =
+        stockFilter === "All" ||
+        product.stockStatus === stockFilter;
+
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesStock
+      );
+    });
+  }, [
+    products,
+    search,
+    category,
+    stockFilter,
+  ]);
+
+  // ====================================================
+  // DELETE
+  // ====================================================
+
+  const handleDelete = async () => {
+    if (!deleteProduct) {
+      return;
+    }
+
+    try {
+      await api.delete(
+        `/admin/products/${deleteProduct.id}`
+      );
+
+      setProducts(
+        (currentProducts) =>
+          currentProducts.filter(
+            (product) =>
+              product.id !==
+              deleteProduct.id
+          )
+      );
+
+      setDeleteProduct(null);
+    } catch (err) {
+      console.error(
+        "Unable to delete product:",
+        err
+      );
+
+      setError(
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Unable to delete product."
+      );
+    }
+  };
+
+  // ====================================================
+  // STOCK STATUS
+  // ====================================================
+
+  const getStockStatus = (stockStatus) => {
+    if (
+      stockStatus ===
+      "OUT_OF_STOCK"
+    ) {
       return {
         label: "Out of Stock",
         className:
           "bg-red-50 text-red-600",
-      };
-    }
-
-    if (stock <= 10) {
-      return {
-        label: "Low Stock",
-        className:
-          "bg-orange-50 text-orange-600",
       };
     }
 
@@ -213,6 +281,89 @@ function Products() {
     };
   };
 
+  // ====================================================
+  // IMAGE COMPONENT
+  // ====================================================
+
+  const ProductImage = ({
+    product,
+    mobile = false,
+  }) => {
+    const imageUrl =
+      product?.image ||
+      product?.imageUrl ||
+      product?.imageUrl2 ||
+      product?.imageUrl3 ||
+      product?.imageUrl4 ||
+      null;
+
+    const isImageUrl =
+      typeof imageUrl === "string" &&
+      (
+        imageUrl.startsWith("http://") ||
+        imageUrl.startsWith("https://") ||
+        imageUrl.startsWith("blob:")
+      );
+
+    return (
+      <div
+        className={
+          mobile
+            ? `
+              flex
+              h-14
+              w-14
+              shrink-0
+              items-center
+              justify-center
+              overflow-hidden
+              rounded-xl
+              bg-[#F0ECFF]
+              text-3xl
+            `
+            : `
+              flex
+              h-11
+              w-11
+              shrink-0
+              items-center
+              justify-center
+              overflow-hidden
+              rounded-xl
+              bg-[#F0ECFF]
+              text-2xl
+            `
+        }
+      >
+        {isImageUrl ? (
+          <img
+            src={imageUrl}
+            alt={
+              product?.name ||
+              "Product"
+            }
+            className="
+              h-full
+              w-full
+              rounded-xl
+              object-contain
+              p-1
+            "
+            onError={(event) => {
+              event.currentTarget.style.display =
+                "none";
+            }}
+          />
+        ) : (
+          imageUrl || "📦"
+        )}
+      </div>
+    );
+  };
+
+  // ====================================================
+  // RENDER
+  // ====================================================
 
   return (
     <div
@@ -221,7 +372,6 @@ function Products() {
         bg-[#F8F6FF]
       "
     >
-
       {/* ==========================================
           HEADER
       ========================================== */}
@@ -237,7 +387,6 @@ function Products() {
           backdrop-blur
         "
       >
-
         <div
           className="
             flex
@@ -249,37 +398,80 @@ function Products() {
             lg:px-8
           "
         >
+          {/* LEFT */}
 
-          <div>
+          <div
+            className="
+              flex
+              items-center
+              gap-3
+            "
+          >
+            {/* BACK BUTTON */}
 
-            <p
+            <motion.button
+              type="button"
+              whileHover={{
+                scale: 1.03,
+                x: -2,
+              }}
+              whileTap={{
+                scale: 0.95,
+              }}
+              onClick={() =>
+                navigate("/dashboard")
+              }
               className="
-                text-[9px]
-                font-bold
-                uppercase
-                tracking-[0.2em]
-                text-[#7C5CFC]
+                flex
+                h-10
+                w-10
+                shrink-0
+                items-center
+                justify-center
+                rounded-xl
+                border
+                border-[#E3DDF5]
+                bg-white
+                text-[#5B3FC4]
+                shadow-sm
+                transition
+                hover:bg-[#F5F1FF]
               "
+              title="Back to Dashboard"
             >
-              MYMA Admin
-            </p>
+              <ArrowLeft size={18} />
+            </motion.button>
 
-            <h1
-              className="
-                mt-1
-                text-xl
-                font-black
-                text-[#211B38]
-                sm:text-2xl
-              "
-            >
-              Products
-            </h1>
+            {/* TITLE */}
 
+            <div>
+              <p
+                className="
+                  text-[9px]
+                  font-bold
+                  uppercase
+                  tracking-[0.2em]
+                  text-[#7C5CFC]
+                "
+              >
+                MYMA Admin
+              </p>
+
+              <h1
+                className="
+                  mt-1
+                  text-xl
+                  font-black
+                  text-[#211B38]
+                  sm:text-2xl
+                "
+              >
+                Products
+              </h1>
+            </div>
           </div>
 
-
-          {/* Add Product */}
+          {/* ADD PRODUCT */}
 
           <motion.button
             type="button"
@@ -311,23 +503,27 @@ function Products() {
               sm:px-5
             "
           >
-
             <Plus size={17} />
 
-            <span className="hidden sm:block">
+            <span
+              className="
+                hidden
+                sm:block
+              "
+            >
               Add Product
             </span>
 
-            <span className="sm:hidden">
+            <span
+              className="
+                sm:hidden
+              "
+            >
               Add
             </span>
-
           </motion.button>
-
         </div>
-
       </header>
-
 
       {/* ==========================================
           CONTENT
@@ -344,6 +540,54 @@ function Products() {
           lg:px-8
         "
       >
+        {/* ========================================
+            ERROR
+        ======================================== */}
+
+        {error && (
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: -8,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            className="
+              mb-5
+              flex
+              items-center
+              justify-between
+              gap-3
+              rounded-2xl
+              border
+              border-red-100
+              bg-red-50
+              px-4
+              py-3
+              text-xs
+              font-bold
+              text-red-600
+            "
+          >
+            <span>
+              {error}
+            </span>
+
+            <button
+              type="button"
+              onClick={() =>
+                setError("")
+              }
+              className="
+                text-red-400
+              "
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
 
         {/* ========================================
             SUMMARY
@@ -357,7 +601,6 @@ function Products() {
             sm:grid-cols-4
           "
         >
-
           <SummaryCard
             title="Total Products"
             value={products.length}
@@ -377,15 +620,15 @@ function Products() {
           />
 
           <SummaryCard
-            title="Low Stock"
+            title="In Stock"
             value={
               products.filter(
                 (product) =>
-                  product.stock > 0 &&
-                  product.stock <= 10
+                  product.stockStatus ===
+                  "IN_STOCK"
               ).length
             }
-            icon={AlertTriangle}
+            icon={PackageCheck}
           />
 
           <SummaryCard
@@ -393,14 +636,13 @@ function Products() {
             value={
               products.filter(
                 (product) =>
-                  product.stock === 0
+                  product.stockStatus ===
+                  "OUT_OF_STOCK"
               ).length
             }
-            icon={PackagePlus}
+            icon={PackageX}
           />
-
         </div>
-
 
         {/* ========================================
             SEARCH + FILTER
@@ -418,7 +660,6 @@ function Products() {
             sm:p-5
           "
         >
-
           <div
             className="
               flex
@@ -429,8 +670,7 @@ function Products() {
               lg:justify-between
             "
           >
-
-            {/* Search */}
+            {/* SEARCH */}
 
             <div
               className="
@@ -439,7 +679,6 @@ function Products() {
                 lg:max-w-md
               "
             >
-
               <Search
                 size={17}
                 className="
@@ -480,75 +719,143 @@ function Products() {
                   focus:ring-[#6B4FD3]/10
                 "
               />
-
             </div>
 
-
-            {/* Category */}
+            {/* FILTERS */}
 
             <div
               className="
                 flex
-                items-center
+                w-full
+                flex-col
                 gap-2
+                sm:flex-row
+                lg:w-auto
               "
             >
+              {/* STOCK STATUS */}
 
-              <span
+              <div
                 className="
-                  hidden
-                  text-[10px]
-                  font-bold
-                  text-[#9B92B4]
-                  sm:block
+                  flex
+                  items-center
+                  gap-2
                 "
               >
-                Category
-              </span>
+                <span
+                  className="
+                    hidden
+                    text-[10px]
+                    font-bold
+                    text-[#9B92B4]
+                    sm:block
+                  "
+                >
+                  Stock Status
+                </span>
 
-              <select
-                value={category}
-                onChange={(e) =>
-                  setCategory(
-                    e.target.value
-                  )
-                }
+                <select
+                  value={stockFilter}
+                  onChange={(e) =>
+                    setStockFilter(
+                      e.target.value
+                    )
+                  }
+                  className="
+                    h-11
+                    w-full
+                    min-w-40
+                    rounded-xl
+                    border
+                    border-[#E2DCF4]
+                    bg-[#FCFBFF]
+                    px-3
+                    text-xs
+                    font-bold
+                    text-[#211B38]
+                    outline-none
+                    focus:border-[#6B4FD3]
+                    focus:ring-4
+                    focus:ring-[#6B4FD3]/10
+                    sm:w-auto
+                  "
+                >
+                  <option value="All">
+                    All Stock
+                  </option>
+
+                  <option value="IN_STOCK">
+                    In Stock
+                  </option>
+
+                  <option value="OUT_OF_STOCK">
+                    Out of Stock
+                  </option>
+                </select>
+              </div>
+
+              {/* CATEGORY */}
+
+              <div
                 className="
-                  h-11
-                  w-full
-                  min-w-40
-                  rounded-xl
-                  border
-                  border-[#E2DCF4]
-                  bg-[#FCFBFF]
-                  px-3
-                  text-xs
-                  font-bold
-                  text-[#211B38]
-                  outline-none
-                  focus:border-[#6B4FD3]
+                  flex
+                  items-center
+                  gap-2
                 "
               >
+                <span
+                  className="
+                    hidden
+                    text-[10px]
+                    font-bold
+                    text-[#9B92B4]
+                    sm:block
+                  "
+                >
+                  Category
+                </span>
 
-                {categories.map(
-                  (item) => (
-                    <option
-                      key={item}
-                      value={item}
-                    >
-                      {item}
-                    </option>
-                  )
-                )}
-
-              </select>
-
+                <select
+                  value={category}
+                  onChange={(e) =>
+                    setCategory(
+                      e.target.value
+                    )
+                  }
+                  className="
+                    h-11
+                    w-full
+                    min-w-40
+                    rounded-xl
+                    border
+                    border-[#E2DCF4]
+                    bg-[#FCFBFF]
+                    px-3
+                    text-xs
+                    font-bold
+                    text-[#211B38]
+                    outline-none
+                    focus:border-[#6B4FD3]
+                    focus:ring-4
+                    focus:ring-[#6B4FD3]/10
+                    sm:w-auto
+                  "
+                >
+                  {categoryOptions.map(
+                    (item) => (
+                      <option
+                        key={item}
+                        value={item}
+                      >
+                        {item}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
             </div>
-
           </div>
-
         </section>
-
 
         {/* ========================================
             PRODUCT TABLE
@@ -565,8 +872,7 @@ function Products() {
             shadow-sm
           "
         >
-
-          {/* Table Header */}
+          {/* TABLE HEADER */}
 
           <div
             className="
@@ -579,9 +885,7 @@ function Products() {
               py-4
             "
           >
-
             <div>
-
               <h2
                 className="
                   text-sm
@@ -599,28 +903,30 @@ function Products() {
                   text-[#9B92B4]
                 "
               >
-                {filteredProducts.length} products
-                found
+                {filteredProducts.length}{" "}
+                products found
               </p>
-
             </div>
-
           </div>
 
+          {/* ======================================
+              DESKTOP TABLE
+          ====================================== */}
 
-          {/* Desktop Table */}
-
-          <div className="hidden overflow-x-auto md:block">
-
+          <div
+            className="
+              hidden
+              overflow-x-auto
+              md:block
+            "
+          >
             <table
               className="
                 w-full
                 min-w-[850px]
               "
             >
-
               <thead>
-
                 <tr
                   className="
                     border-b
@@ -628,81 +934,25 @@ function Products() {
                     bg-[#FBFAFF]
                   "
                 >
-
-                  <th
-                    className="
-                      px-5
-                      py-3
-                      text-left
-                      text-[9px]
-                      font-black
-                      uppercase
-                      tracking-wider
-                      text-[#9B92B4]
-                    "
-                  >
+                  <TableHeader>
                     Product
-                  </th>
+                  </TableHeader>
 
-                  <th
-                    className="
-                      px-5
-                      py-3
-                      text-left
-                      text-[9px]
-                      font-black
-                      uppercase
-                      tracking-wider
-                      text-[#9B92B4]
-                    "
-                  >
+                  <TableHeader>
                     Category
-                  </th>
+                  </TableHeader>
 
-                  <th
-                    className="
-                      px-5
-                      py-3
-                      text-left
-                      text-[9px]
-                      font-black
-                      uppercase
-                      tracking-wider
-                      text-[#9B92B4]
-                    "
-                  >
+                  <TableHeader>
                     Price
-                  </th>
+                  </TableHeader>
 
-                  <th
-                    className="
-                      px-5
-                      py-3
-                      text-left
-                      text-[9px]
-                      font-black
-                      uppercase
-                      tracking-wider
-                      text-[#9B92B4]
-                    "
-                  >
+                  <TableHeader>
                     Stock
-                  </th>
+                  </TableHeader>
 
-                  <th
-                    className="
-                      px-5
-                      py-3
-                      text-left
-                      text-[9px]
-                      font-black
-                      uppercase
-                      tracking-wider
-                      text-[#9B92B4]
-                    "
-                  >
+                  <TableHeader>
                     Status
-                  </th>
+                  </TableHeader>
 
                   <th
                     className="
@@ -718,20 +968,15 @@ function Products() {
                   >
                     Actions
                   </th>
-
                 </tr>
-
               </thead>
 
-
               <tbody>
-
                 {filteredProducts.map(
                   (product) => {
-
                     const stockStatus =
                       getStockStatus(
-                        product.stock
+                        product.stockStatus
                       );
 
                     return (
@@ -750,11 +995,14 @@ function Products() {
                           hover:bg-[#FCFBFF]
                         "
                       >
+                        {/* PRODUCT */}
 
-                        {/* Product */}
-
-                        <td className="px-5 py-4">
-
+                        <td
+                          className="
+                            px-5
+                            py-4
+                          "
+                        >
                           <div
                             className="
                               flex
@@ -762,25 +1010,11 @@ function Products() {
                               gap-3
                             "
                           >
-
-                            <div
-                              className="
-                                flex
-                                h-11
-                                w-11
-                                shrink-0
-                                items-center
-                                justify-center
-                                rounded-xl
-                                bg-[#F0ECFF]
-                                text-2xl
-                              "
-                            >
-                              {product.image}
-                            </div>
+                            <ProductImage
+                              product={product}
+                            />
 
                             <div>
-
                               <p
                                 className="
                                   text-xs
@@ -798,17 +1032,14 @@ function Products() {
                                   text-[#9B92B4]
                                 "
                               >
-                                {product.unit}
+                                {product.unit ||
+                                  "-"}
                               </p>
-
                             </div>
-
                           </div>
-
                         </td>
 
-
-                        {/* Category */}
+                        {/* CATEGORY */}
 
                         <td
                           className="
@@ -819,11 +1050,11 @@ function Products() {
                             text-[#81799C]
                           "
                         >
-                          {product.category}
+                          {product.category ||
+                            "-"}
                         </td>
 
-
-                        {/* Price */}
+                        {/* PRICE */}
 
                         <td
                           className="
@@ -834,31 +1065,41 @@ function Products() {
                             text-[#5B3FC4]
                           "
                         >
-                          ₹{product.price}
+                          ₹{product.price ?? 0}
                         </td>
 
+                        {/* STOCK */}
 
-                        {/* Stock */}
-
-                        <td className="px-5 py-4">
-
+                        <td
+                          className="
+                            px-5
+                            py-4
+                          "
+                        >
                           <span
-                            className="
-                              text-xs
+                            className={`
+                              rounded-full
+                              px-2.5
+                              py-1
+                              text-[9px]
                               font-black
-                              text-[#211B38]
-                            "
+                              ${stockStatus.className}
+                            `}
                           >
-                            {product.stock}
+                            {
+                              stockStatus.label
+                            }
                           </span>
-
                         </td>
 
+                        {/* STATUS */}
 
-                        {/* Status */}
-
-                        <td className="px-5 py-4">
-
+                        <td
+                          className="
+                            px-5
+                            py-4
+                          "
+                        >
                           <div
                             className="
                               flex
@@ -867,7 +1108,6 @@ function Products() {
                               gap-1
                             "
                           >
-
                             <span
                               className={`
                                 rounded-full
@@ -875,31 +1115,27 @@ function Products() {
                                 py-1
                                 text-[9px]
                                 font-black
-                                ${stockStatus.className}
+                                ${
+                                  product.status ===
+                                  "Active"
+                                    ? "bg-green-50 text-green-600"
+                                    : "bg-gray-100 text-gray-500"
+                                }
                               `}
-                            >
-                              {stockStatus.label}
-                            </span>
-
-                            <span
-                              className="
-                                text-[9px]
-                                font-bold
-                                text-[#9B92B4]
-                              "
                             >
                               {product.status}
                             </span>
-
                           </div>
-
                         </td>
 
+                        {/* ACTIONS */}
 
-                        {/* Actions */}
-
-                        <td className="px-5 py-4">
-
+                        <td
+                          className="
+                            px-5
+                            py-4
+                          "
+                        >
                           <div
                             className="
                               flex
@@ -907,7 +1143,6 @@ function Products() {
                               gap-2
                             "
                           >
-
                             <ActionButton
                               icon={Edit3}
                               label="Edit"
@@ -928,22 +1163,15 @@ function Products() {
                                 )
                               }
                             />
-
                           </div>
-
                         </td>
-
                       </motion.tr>
                     );
                   }
                 )}
-
               </tbody>
-
             </table>
-
           </div>
-
 
           {/* ======================================
               MOBILE CARDS
@@ -956,13 +1184,11 @@ function Products() {
               md:hidden
             "
           >
-
             {filteredProducts.map(
               (product) => {
-
                 const stockStatus =
                   getStockStatus(
-                    product.stock
+                    product.stockStatus
                   );
 
                 return (
@@ -980,7 +1206,6 @@ function Products() {
                       p-4
                     "
                   >
-
                     <div
                       className="
                         flex
@@ -988,30 +1213,21 @@ function Products() {
                         gap-3
                       "
                     >
+                      {/* IMAGE */}
 
-                      {/* Image */}
+                      <ProductImage
+                        product={product}
+                        mobile
+                      />
+
+                      {/* DETAILS */}
 
                       <div
                         className="
-                          flex
-                          h-14
-                          w-14
-                          shrink-0
-                          items-center
-                          justify-center
-                          rounded-xl
-                          bg-[#F0ECFF]
-                          text-3xl
+                          min-w-0
+                          flex-1
                         "
                       >
-                        {product.image}
-                      </div>
-
-
-                      {/* Details */}
-
-                      <div className="min-w-0 flex-1">
-
                         <div
                           className="
                             flex
@@ -1020,9 +1236,7 @@ function Products() {
                             gap-2
                           "
                         >
-
                           <div>
-
                             <h3
                               className="
                                 text-sm
@@ -1040,11 +1254,12 @@ function Products() {
                                 text-[#9B92B4]
                               "
                             >
-                              {product.category}
+                              {product.category ||
+                                "-"}
                               {" • "}
-                              {product.unit}
+                              {product.unit ||
+                                "-"}
                             </p>
-
                           </div>
 
                           <p
@@ -1054,13 +1269,13 @@ function Products() {
                               text-[#5B3FC4]
                             "
                           >
-                            ₹{product.price}
+                            ₹
+                            {product.price ??
+                              0}
                           </p>
-
                         </div>
 
-
-                        {/* Stock */}
+                        {/* STOCK */}
 
                         <div
                           className="
@@ -1070,9 +1285,7 @@ function Products() {
                             justify-between
                           "
                         >
-
                           <div>
-
                             <p
                               className="
                                 text-[9px]
@@ -1082,19 +1295,23 @@ function Products() {
                               Stock
                             </p>
 
-                            <p
-                              className="
-                                mt-0.5
-                                text-xs
+                            <span
+                              className={`
+                                mt-1
+                                inline-flex
+                                rounded-full
+                                px-2.5
+                                py-1
+                                text-[9px]
                                 font-black
-                                text-[#211B38]
-                              "
+                                ${stockStatus.className}
+                              `}
                             >
-                              {product.stock}
-                            </p>
-
+                              {
+                                stockStatus.label
+                              }
+                            </span>
                           </div>
-
 
                           <span
                             className={`
@@ -1103,16 +1320,19 @@ function Products() {
                               py-1
                               text-[9px]
                               font-black
-                              ${stockStatus.className}
+                              ${
+                                product.status ===
+                                "Active"
+                                  ? "bg-green-50 text-green-600"
+                                  : "bg-gray-100 text-gray-500"
+                              }
                             `}
                           >
-                            {stockStatus.label}
+                            {product.status}
                           </span>
-
                         </div>
 
-
-                        {/* Actions */}
+                        {/* ACTIONS */}
 
                         <div
                           className="
@@ -1121,7 +1341,6 @@ function Products() {
                             gap-2
                           "
                         >
-
                           <button
                             type="button"
                             onClick={() =>
@@ -1144,13 +1363,9 @@ function Products() {
                               text-[#5B3FC4]
                             "
                           >
-
                             <Edit3 size={13} />
-
                             Edit
-
                           </button>
-
 
                           <button
                             type="button"
@@ -1175,31 +1390,23 @@ function Products() {
                               text-red-500
                             "
                           >
-
                             <Trash2 size={13} />
-
                             Delete
-
                           </button>
-
                         </div>
-
                       </div>
-
                     </div>
-
                   </motion.div>
                 );
               }
             )}
-
           </div>
 
+          {/* ======================================
+              EMPTY / LOADING
+          ====================================== */}
 
-          {/* Empty */}
-
-          {filteredProducts.length === 0 && (
-
+          {loading ? (
             <div
               className="
                 flex
@@ -1211,61 +1418,93 @@ function Products() {
                 text-center
               "
             >
-
               <div
                 className="
-                  flex
-                  h-16
-                  w-16
-                  items-center
-                  justify-center
-                  rounded-2xl
-                  bg-[#F0ECFF]
+                  h-10
+                  w-10
+                  animate-spin
+                  rounded-full
+                  border-4
+                  border-[#E7E0FF]
+                  border-t-[#6B4FD3]
                 "
-              >
-                <Search
-                  size={25}
-                  className="text-[#6B4FD3]"
-                />
-              </div>
-
-              <h3
-                className="
-                  mt-4
-                  text-sm
-                  font-black
-                  text-[#211B38]
-                "
-              >
-                No products found
-              </h3>
+              />
 
               <p
                 className="
-                  mt-1
-                  text-[10px]
-                  text-[#9B92B4]
+                  mt-4
+                  text-xs
+                  font-bold
+                  text-[#81799C]
                 "
               >
-                Try changing your search
-                or category filter.
+                Loading products...
               </p>
-
             </div>
+          ) : (
+            filteredProducts.length === 0 && (
+              <div
+                className="
+                  flex
+                  min-h-60
+                  flex-col
+                  items-center
+                  justify-center
+                  px-5
+                  text-center
+                "
+              >
+                <div
+                  className="
+                    flex
+                    h-16
+                    w-16
+                    items-center
+                    justify-center
+                    rounded-2xl
+                    bg-[#F0ECFF]
+                  "
+                >
+                  <Search
+                    size={25}
+                    className="
+                      text-[#6B4FD3]
+                    "
+                  />
+                </div>
 
+                <h3
+                  className="
+                    mt-4
+                    text-sm
+                    font-black
+                    text-[#211B38]
+                  "
+                >
+                  No products found
+                </h3>
+
+                <p
+                  className="
+                    mt-1
+                    text-[10px]
+                    text-[#9B92B4]
+                  "
+                >
+                  Try changing your search,
+                  category, or stock filter.
+                </p>
+              </div>
+            )
           )}
-
         </section>
-
       </main>
-
 
       {/* ==========================================
           DELETE MODAL
       ========================================== */}
 
       {deleteProduct && (
-
         <div
           className="
             fixed
@@ -1279,7 +1518,6 @@ function Products() {
             backdrop-blur-sm
           "
         >
-
           <motion.div
             initial={{
               opacity: 0,
@@ -1298,7 +1536,6 @@ function Products() {
               shadow-2xl
             "
           >
-
             <div
               className="
                 flex
@@ -1313,7 +1550,6 @@ function Products() {
             >
               <Trash2 size={20} />
             </div>
-
 
             <h3
               className="
@@ -1346,7 +1582,6 @@ function Products() {
               ? This action cannot be undone.
             </p>
 
-
             <div
               className="
                 mt-6
@@ -1354,7 +1589,6 @@ function Products() {
                 gap-2
               "
             >
-
               <button
                 type="button"
                 onClick={() =>
@@ -1379,7 +1613,6 @@ function Products() {
                 Cancel
               </button>
 
-
               <button
                 type="button"
                 onClick={handleDelete}
@@ -1400,19 +1633,38 @@ function Products() {
                 <Trash2 size={15} />
                 Delete
               </button>
-
             </div>
-
           </motion.div>
-
         </div>
-
       )}
-
     </div>
   );
 }
 
+// ======================================================
+// TABLE HEADER
+// ======================================================
+
+function TableHeader({
+  children,
+}) {
+  return (
+    <th
+      className="
+        px-5
+        py-3
+        text-left
+        text-[9px]
+        font-black
+        uppercase
+        tracking-wider
+        text-[#9B92B4]
+      "
+    >
+      {children}
+    </th>
+  );
+}
 
 // ======================================================
 // SUMMARY CARD
@@ -1423,7 +1675,6 @@ function SummaryCard({
   value,
   icon: Icon,
 }) {
-
   return (
     <motion.div
       whileHover={{
@@ -1439,7 +1690,6 @@ function SummaryCard({
         sm:p-5
       "
     >
-
       <div
         className="
           flex
@@ -1447,7 +1697,6 @@ function SummaryCard({
           justify-between
         "
       >
-
         <div
           className="
             flex
@@ -1462,7 +1711,6 @@ function SummaryCard({
         >
           <Icon size={18} />
         </div>
-
       </div>
 
       <p
@@ -1489,11 +1737,9 @@ function SummaryCard({
       >
         {value}
       </p>
-
     </motion.div>
   );
 }
-
 
 // ======================================================
 // ACTION BUTTON
@@ -1505,7 +1751,6 @@ function ActionButton({
   danger,
   onClick,
 }) {
-
   return (
     <button
       type="button"
@@ -1530,6 +1775,5 @@ function ActionButton({
     </button>
   );
 }
-
 
 export default Products;
